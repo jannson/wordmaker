@@ -39,6 +39,11 @@ namespace cedar {
       size_t      length;  // suffix length
       size_t      id;      // node id of value
     };
+	struct iter_res {
+		void operator()(const result_triple_type& res) {
+			;
+		}
+	};
     struct node {
       union { int base_; value_type value; }; // negative means prev empty index
       int  check;                             // negative means next empty index
@@ -118,16 +123,20 @@ namespace cedar {
     }
     // predict key from double array
     template <typename T>
-    size_t commonPrefixPredict (const char* key, T* result, size_t result_len)
+    size_t commonPrefixPredict (const char* key, std::list<T>& result, size_t result_len)
     { return commonPrefixPredict (key, result, result_len, std::strlen (key)); }
     template <typename T>
-    size_t commonPrefixPredict (const char* key, T* result, size_t result_len, size_t len, size_t from = 0) {
+    size_t commonPrefixPredict (const char* key, std::list<T>& result, size_t result_len, size_t len, size_t from = 0) {
       size_t num (0), pos (0), p (0);
       if (_find (key, from, pos, len) == CEDAR_NO_PATH) return 0;
       union { int i; value_type x; } b;
       size_t root = from;
       for (b.i = begin (from, p); b.i != CEDAR_NO_PATH; b.i = next (from, p, root)) {
-        if (num < result_len) _set_result (&result[num], b.x, p, from);
+        if (num < result_len) {
+			T res;
+			_set_result (&res, b.x, p, from);
+			result.push_back(res);
+		}
         ++num;
       }
       return num;
@@ -204,12 +213,28 @@ namespace cedar {
       return 0;
     }
     template <typename T>
-    void dump (T* result, const size_t result_len) {
+    void dump (std::list<T>& result, const size_t result_len) {
       union { int i; value_type x; } b;
       size_t num (0), from (0), p (0);
       for (b.i = begin (from, p); b.i != CEDAR_NO_PATH; b.i = next (from, p))
-        if (num < result_len)
-          _set_result (&result[num++], b.x, p, from);
+        if (num < result_len) {
+			T res;
+			_set_result (&res, b.x, p, from);
+			result.push_back(res);
+		}
+        else
+          _err (__FILE__, __LINE__, "dump() needs array of length = num_keys()\n");
+    }
+    template <typename T>
+    void dump (void (*f)(T&), const size_t result_len) {
+      union { int i; value_type x; } b;
+      size_t num (0), from (0), p (0);
+      for (b.i = begin (from, p); b.i != CEDAR_NO_PATH; b.i = next (from, p))
+        if (num < result_len) {
+			T res;
+			_set_result (&res, b.x, p, from);
+			(*f)(res);
+		}
         else
           _err (__FILE__, __LINE__, "dump() needs array of length = num_keys()\n");
     }

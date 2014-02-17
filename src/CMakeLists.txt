@@ -4,3 +4,6 @@ SET(LIBRARY_OUTPUT_PATH ${PROJECT_BINARY_DIR}/lib)
 INCLUDE_DIRECTORIES(${PROJECT_SOURCE_DIR}/src)
 
 ADD_EXECUTABLE(segword segword.cpp)
+ADD_EXECUTABLE(cedar cedar.cpp)
+ADD_EXECUTABLE(wordmaker wordmaker.cpp)
+TARGET_LINK_LIBRARIES(wordmaker pthread)
