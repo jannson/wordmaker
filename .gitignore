@@ -12,5 +12,8 @@
 *.la
 *.a
 
+build/
 *.txt
-build/*
+!CMakeLists.txt
+!src/CMakeLists.txt
+
