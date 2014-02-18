@@ -14,8 +14,15 @@
  *
  * =====================================================================================
  */
+#include <stdint.h>
 #include <cstdio>
-#include <cstdlib>
+#include <cstdarg>
+#include <cstddef>
+#include <iostream>
+#include <vector>
+#include <list>
+#include <string>
+#include <limits>
 #include <vector>
 #include <list>
 #include <functional>
@@ -31,23 +38,15 @@ typedef trie_t::iter_func iter_func_t;
 
 struct ResOper:public iter_func_t
 {
-	void operator()(result_t& res)
-	{
-		fprintf(stderr, "ResOper %d\n", __LINE__);
-	}
-	int a;
-};
-struct ResOper2:public iter_func_t
-{
-	ResOper2(trie_t* pt):ptrie(pt){}
+	ResOper(trie_t* pt):ptrie(pt), len(0){}
 	void operator()(result_t& res)
 	{
 		char suffix[1024];
 		ptrie->suffix(suffix, res.length, res.id);
-		fprintf(stderr, "%d:%ld:%ld:%s\n", res.value
-				, res.length, res.id, suffix);
+		fprintf(stderr, "%d:%d:%s\n", res.value, res.length, suffix);
+		len++;
 
-
+#if 0
 		char* word = "我";
 		list<result_t> result_triple;
 		ptrie->dump(result_triple, NUM_RESULT);
@@ -57,9 +56,21 @@ struct ResOper2:public iter_func_t
 			fprintf(stderr, "%d:%ld:%ld:%s\n", it->value
 					, it->length, it->id, suffix);
 		}
+#endif
 	}
+	size_t	len;
 	trie_t* ptrie;
 };
+
+#define SWP(x,y) (x^=y, y^=x, x^=y)
+
+void strrev_utf8(string& ref_s)
+{
+  int l = ref_s.length()/2;
+  short *q, *p = (short*)&ref_s[0];
+  q = p+l;
+  for(--q; p < q; ++p, --q) SWP(*p, *q);
+}
 
 void test_res(result_t& res)
 {
@@ -68,7 +79,7 @@ void test_res(result_t& res)
 
 int main(int argc, char** argv)
 {
-	char* words[] = {"apple", "at", "app", "aword", "awt", "我们", "我"};
+	char* words[] = {"appled", "at", "app", "aword", "awt", "我们", "我"};
 	trie_t trie;
 
 	for(int i = 0; i < sizeof(words)/sizeof(words[0]); i++)
@@ -87,11 +98,11 @@ int main(int argc, char** argv)
 	char suffix[1024];
 	list<result_t> result_triple;
 
-#if 0
+#if 1
 	if(const size_t n = trie.commonPrefixPredict(word, result_triple, NUM_RESULT))
 	{
 		fprintf(stderr, "n is %ld\n", n);
-		for (result_t::iterator it = result_triple.begin(); it != result_triple.end(); it++)
+		for (list<result_t>::iterator it = result_triple.begin(); it != result_triple.end(); it++)
 		{
 			trie.suffix(suffix, it->length, it->id);
 			fprintf(stderr, "%d:%ld:%ld:%s%s\n", it->value
@@ -110,10 +121,16 @@ int main(int argc, char** argv)
 	}
 #endif
 
-	fprintf(stderr, "begin dump %d\n", __LINE__);
-	ResOper2 res(&trie);
+	//fprintf(stderr, "begin dump %d\n", __LINE__);
+	//ResOper res(&trie);
 	//std::function<void(result_t&)> res = test_res;
-	trie.dump(res);
+	//trie.dump(res, 2, 3);
+	//fprintf(stderr, "end dump len=%d %d\n", res.len, __LINE__);
+
+	string str_tmp(words[0]);
+	strrev_utf8(str_tmp);
+	fprintf(stderr, "reverse:%s %d %d %x\n", str_tmp.c_str()
+			, strlen(words[0]), str_tmp.length(), words[0][5]);
 
 	return 0;
 }

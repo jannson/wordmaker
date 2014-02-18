@@ -39,6 +39,7 @@ namespace cedar {
       size_t      length;  // suffix length
       size_t      id;      // node id of value
     };
+	// TODO implement an forword iterator
 	struct iter_func : public std::unary_function<void, result_triple_type> {
 		  virtual void operator() (result_triple_type& res) = 0;
 	};
@@ -91,17 +92,18 @@ namespace cedar {
     }
     // interfance
     template <typename T>
-    T exactMatchSearch (const char* key) const
-    { return exactMatchSearch <T> (key, std::strlen (key)); }
+    void exactMatchSearch (T& res, const char* key) const
+    { exactMatchSearch <T> (res, key, std::strlen (key)); }
     template <typename T>
-    T exactMatchSearch (const char* key, size_t len, size_t from = 0) const {
+    void exactMatchSearch (T& result, const char* key, size_t len, size_t from = 0) const {
       union { int i; value_type x; } b;
       size_t pos = 0;
       b.i = _find (key, from, pos, len);
-      if (b.i == CEDAR_NO_PATH) b.i = CEDAR_NO_VALUE;
-      T result;
+      if (b.i == CEDAR_NO_PATH) {
+		b.i = CEDAR_NO_VALUE;
+	  }
+      //T result;
       _set_result (&result, b.x, len, from);
-      return result;
     }
     template <typename T>
     size_t commonPrefixSearch (const char* key, T* result, size_t result_len) const
@@ -225,14 +227,29 @@ namespace cedar {
     }
     //template <typename T>
     //void dump (std::function<void(T&)> f) {
-    void dump (iter_func& f) {
+    void dump (iter_func& f, const size_t pos = 0, const size_t result_len = 99999999) {
       union { int i; value_type x; } b;
-      size_t from (0), p (0);
-      for (b.i = begin (from, p); b.i != CEDAR_NO_PATH; b.i = next (from, p)) {
+      size_t from (0), p (0), num (0);
+
+	  b.i = begin (from, p);
+	  if(0 != pos) {
+		  while((num < pos) && (b.i != CEDAR_NO_PATH)) {
+			  b.i = next (from, p);
+			  num++;
+		  }
+	  }
+
+	  num = 0;
+      for (; b.i != CEDAR_NO_PATH; b.i = next (from, p)) {
 			result_triple_type res;
 			//T res;
 			_set_result (&res, b.x, p, from);
 			f(res);
+
+			num++;
+			if(num >= result_len) {
+				break;
+			}
 		}
     }
     int save (const char* fn, const char* mode = "wb") const {
