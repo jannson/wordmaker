@@ -39,10 +39,8 @@ namespace cedar {
       size_t      length;  // suffix length
       size_t      id;      // node id of value
     };
-	struct iter_res {
-		void operator()(const result_triple_type& res) {
-			;
-		}
+	struct iter_func : public std::unary_function<void, result_triple_type> {
+		  virtual void operator() (result_triple_type& res) = 0;
 	};
     struct node {
       union { int base_; value_type value; }; // negative means prev empty index
@@ -225,18 +223,17 @@ namespace cedar {
         else
           _err (__FILE__, __LINE__, "dump() needs array of length = num_keys()\n");
     }
-    template <typename T>
-    void dump (void (*f)(T&), const size_t result_len) {
+    //template <typename T>
+    //void dump (std::function<void(T&)> f) {
+    void dump (iter_func& f) {
       union { int i; value_type x; } b;
-      size_t num (0), from (0), p (0);
-      for (b.i = begin (from, p); b.i != CEDAR_NO_PATH; b.i = next (from, p))
-        if (num < result_len) {
-			T res;
+      size_t from (0), p (0);
+      for (b.i = begin (from, p); b.i != CEDAR_NO_PATH; b.i = next (from, p)) {
+			result_triple_type res;
+			//T res;
 			_set_result (&res, b.x, p, from);
-			(*f)(res);
+			f(res);
 		}
-        else
-          _err (__FILE__, __LINE__, "dump() needs array of length = num_keys()\n");
     }
     int save (const char* fn, const char* mode = "wb") const {
       // _test ();

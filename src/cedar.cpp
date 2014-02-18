@@ -18,16 +18,42 @@
 #include <cstdlib>
 #include <vector>
 #include <list>
+#include <functional>
 #include <cedar.h>
 
 using namespace std;
 
 static const size_t NUM_RESULT = 1024;
 
+typedef cedar::da<int> trie_t;
+typedef trie_t::result_triple_type result_t;
+typedef trie_t::iter_func iter_func_t;
+
+struct ResOper:public iter_func_t
+{
+	void operator()(result_t& res)
+	{
+		fprintf(stderr, "ResOper %d\n", __LINE__);
+	}
+	int a;
+};
+struct ResOper2:public iter_func_t
+{
+	void operator()(result_t& res)
+	{
+		fprintf(stderr, "ResOper2 %d\n", __LINE__);
+	}
+	int b;
+};
+
+void test_res(result_t& res)
+{
+	fprintf(stderr, "ResOper %d\n", __LINE__);
+}
+
 int main(int argc, char** argv)
 {
 	char* words[] = {"apple", "at", "app", "aword", "awt", "我们", "我"};
-	typedef cedar::da<int> trie_t;
 	trie_t trie;
 
 	for(int i = 0; i < sizeof(words)/sizeof(words[0]); i++)
@@ -44,8 +70,7 @@ int main(int argc, char** argv)
 	
 	char* word = "我";
 	char suffix[1024];
-	typedef list<trie_t::result_triple_type> result_t;
-	result_t result_triple;
+	list<result_t> result_triple;
 
 #if 0
 	if(const size_t n = trie.commonPrefixPredict(word, result_triple, NUM_RESULT))
@@ -70,12 +95,10 @@ int main(int argc, char** argv)
 	}
 #endif
 
-	//trie.dump([&](result_t& res) {;}, NUM_RESULT);
-	void (* test)() = [](){
-		puts("test!");
-	};
-
-	test();
+	fprintf(stderr, "begin dump %d\n", __LINE__);
+	ResOper2 res;
+	//std::function<void(result_t&)> res = test_res;
+	trie.dump(res);
 
 	return 0;
 }
