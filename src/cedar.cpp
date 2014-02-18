@@ -39,11 +39,26 @@ struct ResOper:public iter_func_t
 };
 struct ResOper2:public iter_func_t
 {
+	ResOper2(trie_t* pt):ptrie(pt){}
 	void operator()(result_t& res)
 	{
-		fprintf(stderr, "ResOper2 %d\n", __LINE__);
+		char suffix[1024];
+		ptrie->suffix(suffix, res.length, res.id);
+		fprintf(stderr, "%d:%ld:%ld:%s\n", res.value
+				, res.length, res.id, suffix);
+
+
+		char* word = "我";
+		list<result_t> result_triple;
+		ptrie->dump(result_triple, NUM_RESULT);
+		for (list<result_t>::iterator it = result_triple.begin(); it != result_triple.end(); it++)
+		{
+			ptrie->suffix(suffix, it->length, it->id);
+			fprintf(stderr, "%d:%ld:%ld:%s\n", it->value
+					, it->length, it->id, suffix);
+		}
 	}
-	int b;
+	trie_t* ptrie;
 };
 
 void test_res(result_t& res)
@@ -96,7 +111,7 @@ int main(int argc, char** argv)
 #endif
 
 	fprintf(stderr, "begin dump %d\n", __LINE__);
-	ResOper2 res;
+	ResOper2 res(&trie);
 	//std::function<void(result_t&)> res = test_res;
 	trie.dump(res);
 
