@@ -77,6 +77,26 @@ void test_res(result_t& res)
 	fprintf(stderr, "ResOper %d\n", __LINE__);
 }
 
+//get the range in [start, end)
+void gbk_range(int& start, int& end, int pos, int split_n)
+{
+	//[81~A0] [B0~FE]
+	const int total = (0xa0 - 0x80 + 1) + (0xfe - 0xb0 + 1);
+	const int range = (total + split_n - 1)/split_n;
+
+	//calc start
+	start = 0x80 + pos * range;
+	end = 0x80 + (pos + 1) * range;
+	if((start <= 0xa0) && (end > 0xb0))
+	{
+		end += 0xb0 - 0xa0;
+	}
+	else if(start > 0xa0) {
+		start += 0xb0 - 0xa0;
+		end += 0xb0 - 0xa0;
+	}
+}
+
 int main(int argc, char** argv)
 {
 	char* words[] = {"appled", "at", "app", "aword", "awt", "我们", "我"};
@@ -87,6 +107,12 @@ int main(int argc, char** argv)
         fprintf(stderr, "%s\t%d\n", words[i], i);
 		trie.update(words[i], strlen(words[i]), i);
 	}
+
+	char test_c[4];
+	*((unsigned short*)test_c) = 261;
+	test_c[2] = '\0';
+	trie.update(test_c, strlen(test_c), 1);
+	fprintf(stderr, "testc:%s %d\n", test_c, strlen(test_c));
 
 	trie.update(words[6], strlen(words[6]), 10);
 
@@ -127,10 +153,19 @@ int main(int argc, char** argv)
 	//trie.dump(res, 2, 3);
 	//fprintf(stderr, "end dump len=%d %d\n", res.len, __LINE__);
 
+#if 0
 	string str_tmp(words[0]);
 	strrev_utf8(str_tmp);
 	fprintf(stderr, "reverse:%s %d %d %x\n", str_tmp.c_str()
 			, strlen(words[0]), str_tmp.length(), words[0][5]);
+#endif
+
+	int n = 10;
+	for(int i = 0; i < n; i++){
+		int start, end;
+		gbk_range(start, end, i, n);
+		fprintf(stderr, "i %d: [0x%02x, 0x%02x)\n", i, start, end);
+	}
 
 	return 0;
 }

@@ -1,9 +1,9 @@
 /*
  * =====================================================================================
  *
- *       Filename:  wordmaker.cpp
+ *       Filename:  wordmaker_big.cpp
  *
- *    Description:  
+ *    Description:  For making more huge text
  *
  *        Version:  1.0
  *        Created:  2014年02月17日 11时27分08秒
@@ -35,17 +35,20 @@
 #include <condition_variable>
 #include <thread>
 
+#define USE_FAST_LOAD
 #include <cedar.h>
 
 using namespace std;
 
-const uint32_t THREAD_N = 4;
-const uint32_t LINE_LEN = 10240;
-const uint32_t BUCKET_SIZE = 102400;
-const uint32_t WORD_LEN = 6 * 2;//n个汉字
-const uint32_t SHORTEST_WORD_LEN = 2;
-const uint32_t LEAST_FREQ = 3;
-const float   FREQ_LOG_MIN = -99999999.0;
+const uint32_t	THREAD_N = 4;
+const uint32_t	LINE_LEN = 10240;
+const uint32_t	BUCKET_SIZE = 102400;
+const uint32_t	WORKER_SIZE = 0x1000000; //16M
+const uint32_t	WORD_LEN = 6 * 2;//n个汉字
+const uint32_t	SHORTEST_WORD_LEN = 2;
+const uint32_t	LEAST_FREQ = 3;
+const float		FREQ_LOG_MIN = -99999999.0;
+const uint32_t	GBK_
 static const size_t NUM_RESULT = 102400;
 
 const float g_entropy_thrhd = 1.7;
@@ -62,37 +65,39 @@ typedef list<ptrie_t>		ptrie_list;
 typedef trie_t::result_triple_type trie_result_t;
 typedef list<trie_result_t> trie_result_list;
 typedef trie_t::iter_func trie_iter_t;
-typedef unique_ptr<FILE, int (*)(FILE*)> unique_file_ptr;
 
-class Log
+#if 0
+/* Not work, why? */
+typedef unique_ptr<std::FILE, int(*)(std::FILE*)> unique_file_ptr;
+static auto make_file(const char* filename, const char* flags)
 {
+	FILE* f = fopen(filename, flags);
+	return unique_file_ptr(f, fclose);
+}
+#endif
+
+class WrapFile
+{
+	typedef FILE*	ptr;
+	ptr				wrap_file;
 public:
-	Log(const char* filename):fd(0)
-	{
-        fd = fopen(filename, "w");
+	WrapFile(const char* filename, const char* flag):
+		wrap_file(fopen(filename, flag))
+	{}
+	operator ptr() const {
+		return wrap_file;
 	}
-	void log(const char* fmt, ...)
+	~WrapFile()
 	{
-		va_list args;
-		va_start(args, fmt);
-		fprintf(fd, fmt, args);
-		va_end(args);
-	}
-	~Log()
-	{
-		if(fd)
+		if(wrap_file)
 		{
 			fclose(fd);
 		}
 	}
-//private:
-public:
-	FILE* fd;
 };
-
-#ifdef DEBUG
-static Log glog("log.txt");
-#endif
+//#ifdef DEBUG
+static WrapFile glog("log.txt", "w");
+//#endif
 
 #define SWP(x,y) (x^=y, y^=x, x^=y)
 
@@ -113,7 +118,7 @@ bool gbk_hanzi(const char* str)
 {
     int char_len = gbk_char_len(str);
     if ((char_len == 2)
-			&& ((unsigned char)str[0] < 0xa1 || (unsigned char)str[0] > 0xa9)
+			&& ((unsiged char)str[0] < 0xa1 || (unsigned char)str[0] > 0xa9)
 		) 
 	{
         return true;
@@ -121,7 +126,28 @@ bool gbk_hanzi(const char* str)
     return false;
 }
 
-int unhanzi_to_space(char* oline, const char* iline)
+//get the range in [start, end)
+void gbk_range(int& start, int& end, int pos, int split_n)
+{
+	//[81~A0] [B0~FE]
+	const int total = (0xa0 - 0x80 + 1) + (0xfe - 0xb0 + 1);
+	const int range = (total + split_n - 1)/split_n;
+
+	//calc start
+	start = 0x80 + pos * range;
+	end = 0x80 + (pos + 1) * range;
+	if((start <= 0xa0) && (end > 0xb0))
+	{
+		end += 0xb0 - 0xa0;
+	}
+	else if(start > 0xa0) {
+		start += 0xb0 - 0xa0;
+		end += 0xb0 - 0xa0;
+	}
+}
+
+/* return the real iline len */
+uint32_t unhanzi_to_space(char* oline, const char* iline)
 {
     const uint32_t line_len = strlen(iline);
     uint32_t io = 0;
@@ -139,14 +165,14 @@ int unhanzi_to_space(char* oline, const char* iline)
             }
         }
         ii += char_len;
-        //BOOST_ASSERT(ii < line_len);
+        //assert(ii < line_len);
         if (ii > line_len) {
-		//fprintf(stderr, "WARNING, last character[%s] length wrong line[%s]\n", iline + ii - char_len, iline);
+		//fprintf(glog, "WARNING, last character[%s] length wrong line[%s]\n", iline + ii - char_len, iline);
 		;/* Ignore the error print 30/10/13 11:22:11 */
         }
     }
     oline[io] = '\0';
-    return 0;
+    return line_len;
 }
 
 struct Bucket
@@ -161,38 +187,39 @@ typedef shared_ptr<BucketList> PBucketList;
 class WordMaker;
 
 void bucket_run(WordMaker& maker);
+void reduce1(WordMaker& maker);
 void gen_word_run(WordMaker& maker, int pos, int word_len);
 
 class WordMaker
 {
-	struct trie_combine_t:public trie_iter_t
+	struct sequence_trie_t: public trie_iter_t
 	{
-		trie_combine_t(ptrie_t pt, WordMaker* maker):ptrie(pt)
-											, pmaker(maker)
-											, word_len(0)
-		{}
-		void operator()(trie_result_t& res)
+		sequence_trie_t(int ss, int ee, trie_t* trie1, trie_t* trie2):
+			start(ss), end(ee), seq_trie(trie1), seq_trie_r(trie2)
 		{
+		}
+		void operator()(trie_result_t& res) {
 			char suffix[256];
 			ptrie->suffix(suffix, res.length, res.id);
+			if(((int)suffix[0] >= start) && ((int)suffix[0] < end)) {
+				seq_trie.update(suffix, res.length, res.value);
+			}
 
-			pmaker->trie.update(suffix, res.length, res.value);
-			
 			string s(suffix);
 			strrev_unicode(s);
-			pmaker->trie_r.update(s.c_str(), res.length, res.value);
-			//fprintf(glog.fd, "%s\t:\t%s\n", suffix, s.c_str());
-
-			word_len++;
+			if(((int)suffix[0] >= start) && ((int)suffix[0] < end)) {
+				seq_trie_r.update(s.c_str(), res.length, res.value);
+			}
 		}
-		size_t word_len;
-		ptrie_t ptrie;
-		WordMaker* pmaker;
+		int			start;
+		int			end;
+		trie_t*		seq_trie;
+		trie_t*		seq_trie_r;
 	};
-
-	struct cad_gen_t:public trie_iter_t
+	struct cad_gen_t: public trie_iter_t
 	{
-		cad_gen_t(WordMaker* maker):pmaker(maker)
+		cad_gen_t(int p, uint32_t tol, trie_t* trie1, trie_t* trie2):
+			pos(p), total_word(tol), seq_trie(trie1), seq_trie_r(trie2)
 		{}
 		float calc_entropy(const string& word
 				, const trie_result_t& res
@@ -241,13 +268,10 @@ class WordMaker
 		void operator()(trie_result_t& res)
 		{
 			char suffix[256];
-			pmaker->trie.suffix(suffix, res.length, res.id);
-			//fprintf(glog.fd, "word:%s\t%d\n", suffix, res.id);
+			seq_trie.suffix(suffix, res.length, res.id);
 
 			string word(suffix);
 			uint32_t freq = res.value;
-
-			//fprintf(glog.fd, "word:%s\t%d\n", word.c_str(), freq);
 
 			int tmp_len = res.length;
 			if (( tmp_len <= SHORTEST_WORD_LEN) || (tmp_len >= WORD_LEN)) {
@@ -257,20 +281,20 @@ class WordMaker
 				return;
 			}
 			
-			int total_freq = pmaker->total_word/W;
+			int total_freq = total_word/W;
 
 			float max_ff = FREQ_LOG_MIN;
 			for (string::iterator ic = word.begin() + 2; ic <= word.end() - 2; ic += 2) {
 				string temp_left(word.begin(), ic);
 				trie_result_t left_res;
-				pmaker->trie.exactMatchSearch(left_res, temp_left.c_str());
+				seq_trie.exactMatchSearch(left_res, temp_left.c_str());
 				int left_f = left_res.value;
 				if(left_f <= LEAST_FREQ)
 					return;
 
 				string temp_right(ic, word.end());
 				trie_result_t right_res;
-				pmaker->trie.exactMatchSearch(right_res, temp_right.c_str());
+				seq_trie.exactMatchSearch(right_res, temp_right.c_str());
 				int right_f = right_res.value;
 				if(right_f <= LEAST_FREQ)
 					return;
@@ -308,22 +332,66 @@ class WordMaker
 			fprintf(pmaker->out_file.fd, "%s\t%f\t%f\t%f\n"
 					, word.c_str(), log_freq, entropy_l, entropy_r);
 		}
-		WordMaker* pmaker;
-		static const float W = 2;
+		int					pos;
+		uint32_t			total_word;
+		trie_t				seq_trie;
+		trie_t				seq_trie_r;
+		static const float	W = 4;
 	};
 
 public:
-	WordMaker(const char* filename
+	WordMaker(const char* inf
+			, const char* ouf,
 			, int thr=THREAD_N):bucket_num(0)
 							, total_bucket(0)
 							, total_word(0)
-							, step1_done(0)
+							, steps_done(0)
 							, thread_n(thr)
 							, phz_str(make_shared<string_list>())
 							, threads(new thread[thr])
-							, out_file(filename)
+							, in_file(inf, "r")
+							, ofile_name(ouf)
 	{
-		hzstr_list.push_back(phz_str);
+	}
+
+	/* Only run in the main thread */
+	bool bulk_text()
+	{
+		char line[LINE_LEN];
+		char oline[LINE_LEN];
+		uint32_t bulk_len = 0;
+
+		while (fgets(line, LINE_LEN, in_file)) {
+			uint32_t l = unhanzi_to_space(oline, line);
+			space_seperate_line_to_hanzi_vector(oline);
+
+			bulk_len += l;
+			if(bulk_len >= WORKER_SIZE){
+				return true;
+			}
+		}
+		
+		/* have to process the last */
+		return false;
+	}
+
+	void workers_run()
+	{
+		int workers = 0;
+		bool next = true;
+
+		while(next) {
+			reset_step1();
+			next = bulk_text();
+			run_step1();
+
+			workers++;
+			fprintf(stderr, "workers %d done, total_words:%d\n", workers, total_word);
+		}
+		fprintf(stderr, "step1 done\n");
+
+		reduce_step1();
+		run_step2();
 	}
 
 	int space_seperate_line_to_hanzi_vector(char* oline)
@@ -370,19 +438,25 @@ public:
 		return true;
 	}
 
+	void reset_step1() {
+		assert(hzstr_list.size() == 0);
+		
+		bucket_num = 0;
+		steps_done = 0;
+		phz_str.clear();
+		hzstr_list.push_back(phz_str);
+	}
+
 	void run_step1()
 	{
-		fprintf(stderr, "begin run_step1 using thread:%d\n", thread_n);
+		fprintf(stderr, "run_step1 using thread:%d\n", thread_n);
 
 		for(int i = 0; i < thread_n; i++)
 		{
 			threads[i] = thread(bucket_run, ref(*this));
 		}
 
-		this->reduce_step1();
-
-		//trie.save("test.trie");
-		//trie_r.save("test2.trie");
+		wait_threads_done();
 	}
 
 	void bucket_process(Bucket& bucket)
@@ -402,68 +476,80 @@ public:
 			}
 		}
 
-		// Notify the main thread to do the job
-		unique_lock<mutex> lock(m_var);
-		trie_list.push_back(bucket.trie);
-		cond_var.notify_one();
+		string trie_file(ofile_name + "_buck_" + to_string(bucket.id));
+		bucket.trie.save(trie_file.c_str());
 		fprintf(stderr, "bucket %d done\n", bucket.id);
 	}
 
-	void notify_step1()
+	void notify_step()
 	{
 		unique_lock<mutex> lock(m_var);
-		fprintf(stderr, "done %d\n", step1_done);
-		step1_done++;
+		//fprintf(stderr, "done %d\n", steps_done);
+		steps_done++;
 		cond_var.notify_one();
 	}
 
-	//Only run in main thread
-	void reduce_step1()
+	void wait_threads_done()
 	{
-		//Combile all tries to one trie
-
-		while(true)
+		unique_lock<mutex> lock(m_var);
+		while(steps_done < thread_n)
 		{
-			unique_lock<mutex> lock(m_var);
-			while((step1_done < thread_n) && trie_list.empty())
-			{
-				cond_var.wait(lock);
-			}
-			if(step1_done < thread_n)
-			{
-				//fprintf(stderr, "begin combine %d\n", __LINE__);
-				ptrie_t ptrie = trie_list.front();
-				trie_combine_t trie_combine(ptrie, this);
-				ptrie->dump(trie_combine);
-				trie_list.pop_front();
-				//fprintf(stderr, "end combine %d\n", __LINE__);
-
-				total_word += trie_combine.word_len;
-			}
-			else
-				break;
+			cond_var.wait(lock);
 		}
 
-		// Check that all thread exit
-		for(int i = 0; i < thread_n; i++)
-		{
+		for(int i = 0; i < thread_n; i++) {
 			threads[i].join();
 		}
+	}
 
-		fprintf(stderr, "thread all done\n");
-
+	int reduce1_next() {
 		unique_lock<mutex> lock(m_var);
-		for(ptrie_list::iterator it = trie_list.begin();
-				it != trie_list.end(); it++)
-		{
-			ptrie_t ptrie = *it;
-			trie_combine_t trie_combine(ptrie, this);
-			ptrie->dump(trie_combine);
+		return range_pos++;
+	}
 
-			total_word += trie_combine.word_len;
+	void reduce_step1_run() {
+		while(true) {
+			int start, end;
+			int pos = reduce1_next();
+			gbk_range(start, end, pos, range_n);
+
+			trie_t seq_trie, seq_trie_t;
+			//Now only save the word from [start, end)
+			for(int i = 0; i < total_bucket; i++) {
+				string trie_file(ofile_name + "_buck_" + to_string(bucket.id));
+				trie_t trie;
+				trie.open(trie_file.c_str());
+
+				sequence_trie_t seq_trie(start, end, this, &seq_trie, &seq_trie_r);
+				trie.dump(seq_trie);
+			}
+
+			//string seq_file(ofile_name + "_seq_" + to_string(pos));
+			//string seq_file_r(ofile_name + "_seqr_" + to_string(pos));
+			//seq_trie.save(seq_file.c_str());
+			//seq_trie_r.save(seq_file_r.c_str());
+
+			//Now calc the result
+			;
+		}
+	}
+
+	void reduce_step1()
+	{
+		const int SEG = 2;
+
+		//generate random tries to sequence tries
+		range_pos = 0;
+		range_n = (total_bucket + SEG - 1) / SEG;
+
+		for(int i = 0; i < thread_n; i++)
+		{
+			threads[i] = thread(reduce1, ref(*this));
 		}
 
-		fprintf(stderr, "reduce %d words ok\n", total_word);
+		wait_threads_done();
+
+		fprintf(stderr, "reduce ok with range:%d \n", range_n);
 	}
 
 	void gen_word(int pos, int word_len)
@@ -478,7 +564,7 @@ public:
 
 		int range = (total_word+thread_n-1) / thread_n;
 
-		step1_done = 0;	//reset
+		steps_done = 0;	//reset
 
 		for(int i = 0; i < thread_n; i++)
 		{
@@ -486,7 +572,7 @@ public:
 		}
 
 		unique_lock<mutex> lock(m_var);
-		while(step1_done < thread_n)
+		while(steps_done < thread_n)
 		{
 			cond_var.wait(lock);
 		}
@@ -501,21 +587,25 @@ public:
 private:
     list<pstring_list> hzstr_list;
 	uint32_t		bucket_num;
-	uint32_t		total_bucket;
 	pstring_list	phz_str;
+	uint32_t		total_bucket;
 
-	ptrie_list		trie_list;
-	trie_t			trie;
-	trie_t			trie_r;
+	//ptrie_list		trie_list;
+	//trie_t			trie;
+	//trie_t			trie_r;
 	uint32_t		total_word;
+
+	int				range_pos;
+	int				range_n;
 	
 	int				thread_n;
 	unique_ptr<thread[]> threads;
-	int				step1_done;
+	int				steps_done;
 	mutex			m_var;
 	condition_variable	cond_var;
 
-	Log		out_file;
+	string			ofile_name;
+	WrapFile		in_file;
 };
 
 void bucket_run(WordMaker& maker)
@@ -533,14 +623,18 @@ void bucket_run(WordMaker& maker)
 		}
 	}
 	
-	maker.notify_step1();
+	maker.notify_step();
+}
+
+void reduce1(WordMaker& maker) {
+	maker.reduce_step1_run();
+	maker.notify_step();
 }
 
 void gen_word_run(WordMaker& maker, int pos, int word_len)
 {
 	maker.gen_word(pos, word_len);
-
-	maker.notify_step1();	/* Use the same notify */
+	maker.notify_step();
 }
 
 int main (int args, char* argv[])
@@ -549,22 +643,9 @@ int main (int args, char* argv[])
         fprintf(stdout, "./wordmaker in_doc_file_name out_words_file_name\n");
         return -1;
     }
-    const char* in_file_name = argv[1];
-    const char* out_file_name = argv[2];
-    FILE* fd_in = fopen(in_file_name, "r");
-    char line[LINE_LEN];
-    char oline[LINE_LEN];
-	WordMaker wordmaker(out_file_name);
 
-    while (fgets(line, LINE_LEN, fd_in)) {
-        unhanzi_to_space(oline, line);
-		wordmaker.space_seperate_line_to_hanzi_vector(oline);
-    }
-    fclose(fd_in);
-
-	wordmaker.run_step1();
-
-	wordmaker.run_step2();
+	WordMaker wordmaker(argv[1], argv[2]);
+	wordmaker.workers_run();
 
 	return 0;
 }
