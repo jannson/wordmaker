@@ -192,6 +192,153 @@ void gen_word_run(WordMaker& maker, int pos, int word_len);
 
 class WordMaker
 {
+	struct sequence_trie_t: public trie_iter_t
+	{
+		sequence_trie_t(int ss, int ee, trie_t* trie1, trie_t* trie2):
+			start(ss), end(ee), seq_trie(trie1), seq_trie_r(trie2)
+		{
+		}
+		void operator()(trie_result_t& res) {
+			char suffix[256];
+			ptrie->suffix(suffix, res.length, res.id);
+			if(((int)suffix[0] >= start) && ((int)suffix[0] < end)) {
+				seq_trie.update(suffix, res.length, res.value);
+			}
+
+			string s(suffix);
+			strrev_unicode(s);
+			if(((int)suffix[0] >= start) && ((int)suffix[0] < end)) {
+				seq_trie_r.update(s.c_str(), res.length, res.value);
+			}
+		}
+		int			start;
+		int			end;
+		trie_t*		seq_trie;
+		trie_t*		seq_trie_r;
+	};
+	struct cad_gen_t: public trie_iter_t
+	{
+		cad_gen_t(int p, uint32_t tol, trie_t* trie1, trie_t* trie2):
+			pos(p), total_word(tol), seq_trie(trie1), seq_trie_r(trie2)
+		{}
+		float calc_entropy(const string& word
+				, const trie_result_t& res
+				, trie_t& entro_trie
+				, const int total_freq) 
+		{
+			char suffix[256];
+			hash_t		rlt_hash;
+			trie_result_list rlts;
+			size_t rlts_len = entro_trie.commonPrefixPredict(word.c_str(), rlts, NUM_RESULT);
+			float entropy = 0.0;
+			if(rlts_len > 1) {
+				int entropy_freq = 0;
+				// Ignore itself
+				trie_result_list::iterator it = rlts.begin();
+				for(it++; it != rlts.end(); it++) {
+					assert(it->length < 250);
+					entro_trie.suffix(suffix, it->length, it->id);
+					string tmp_s(suffix);
+					string tmp(tmp_s.begin(), tmp_s.begin()+2);
+					//fprintf(glog.fd, "%s %s %s %d\n",word.c_str(), suffix, tmp.c_str(), it->value);
+
+					hash_t::iterator it_map = rlt_hash.find(tmp);
+					if (it_map == rlt_hash.end()) {
+						rlt_hash[tmp] = it->value;
+					} else {
+						it_map->second += it->value;
+					}
+
+					entropy_freq += it->value;
+				}
+				for(hash_t::iterator map_it = rlt_hash.begin();
+						map_it != rlt_hash.end();
+						map_it++) {
+					float p = static_cast<float>(map_it->second) / entropy_freq;
+					entropy -= p * log(p);
+					//fprintf(glog.fd, "entropy %s\t%d\n", map_it->first.c_str(), map_it->second);
+				}
+			} else {
+				entropy = static_cast<float>(res.value)/20.0;
+			}
+
+			return entropy;
+		}
+
+		void operator()(trie_result_t& res)
+		{
+			char suffix[256];
+			seq_trie.suffix(suffix, res.length, res.id);
+
+			string word(suffix);
+			uint32_t freq = res.value;
+
+			int tmp_len = res.length;
+			if (( tmp_len <= SHORTEST_WORD_LEN) || (tmp_len >= WORD_LEN)) {
+				return;
+			}
+			if (freq < LEAST_FREQ) {
+				return;
+			}
+			
+			int total_freq = total_word/W;
+
+			float max_ff = FREQ_LOG_MIN;
+			for (string::iterator ic = word.begin() + 2; ic <= word.end() - 2; ic += 2) {
+				string temp_left(word.begin(), ic);
+				trie_result_t left_res;
+				seq_trie.exactMatchSearch(left_res, temp_left.c_str());
+				int left_f = left_res.value;
+				if(left_f <= LEAST_FREQ)
+					return;
+
+				string temp_right(ic, word.end());
+				trie_result_t right_res;
+				seq_trie.exactMatchSearch(right_res, temp_right.c_str());
+				int right_f = right_res.value;
+				if(right_f <= LEAST_FREQ)
+					return;
+
+				float left = log(static_cast<float>(left_f)/total_freq);
+				float right = log(static_cast<float>(right_f)/total_freq);
+				max_ff = max(left + right, max_ff);
+			}
+
+			float log_freq = log(static_cast<float>(freq)/total_freq);
+			log_freq -= max_ff;
+			int weight = (word.size()-2)*0.5;
+			log_freq -= 0.8*(weight-1);
+			if(log_freq < 1.6) {
+				return;
+			}
+
+			//Now calc right entropy
+			float entropy_r = calc_entropy(word, res, pmaker->trie, total_freq);
+			if(entropy_r < g_entropy_thrhd) {
+				return;
+			}
+
+			// Now calc left entropy
+			string word_r(word.c_str());
+			strrev_unicode(word_r);
+			assert(word_r.length() == word.length());
+
+			//fprintf(glog.fd, "%s\t%s\t%f\n", word.c_str(), word_r.c_str(), log_freq);
+
+			float entropy_l = calc_entropy(word_r, res, pmaker->trie_r, total_freq);
+			if(entropy_l < g_entropy_thrhd) {
+				return;
+			}
+			fprintf(pmaker->out_file.fd, "%s\t%f\t%f\t%f\n"
+					, word.c_str(), log_freq, entropy_l, entropy_r);
+		}
+		int					pos;
+		uint32_t			total_word;
+		trie_t				seq_trie;
+		trie_t				seq_trie_r;
+		static const float	W = 4;
+	};
+
 public:
 	WordMaker(const char* inf
 			, const char* ouf,
@@ -242,6 +389,9 @@ public:
 			fprintf(stderr, "workers %d done, total_words:%d\n", workers, total_word);
 		}
 		fprintf(stderr, "step1 done\n");
+
+		reduce_step1();
+		run_step2();
 	}
 
 	int space_seperate_line_to_hanzi_vector(char* oline)
@@ -352,6 +502,88 @@ public:
 		}
 	}
 
+	int reduce1_next() {
+		unique_lock<mutex> lock(m_var);
+		return range_pos++;
+	}
+
+	void reduce_step1_run() {
+		while(true) {
+			int start, end;
+			int pos = reduce1_next();
+			gbk_range(start, end, pos, range_n);
+
+			trie_t seq_trie, seq_trie_t;
+			//Now only save the word from [start, end)
+			for(int i = 0; i < total_bucket; i++) {
+				string trie_file(ofile_name + "_buck_" + to_string(bucket.id));
+				trie_t trie;
+				trie.open(trie_file.c_str());
+
+				sequence_trie_t seq_trie(start, end, this, &seq_trie, &seq_trie_r);
+				trie.dump(seq_trie);
+			}
+
+			//string seq_file(ofile_name + "_seq_" + to_string(pos));
+			//string seq_file_r(ofile_name + "_seqr_" + to_string(pos));
+			//seq_trie.save(seq_file.c_str());
+			//seq_trie_r.save(seq_file_r.c_str());
+
+			//Now calc the result
+			;
+		}
+	}
+
+	void reduce_step1()
+	{
+		const int SEG = 2;
+
+		//generate random tries to sequence tries
+		range_pos = 0;
+		range_n = (total_bucket + SEG - 1) / SEG;
+
+		for(int i = 0; i < thread_n; i++)
+		{
+			threads[i] = thread(reduce1, ref(*this));
+		}
+
+		wait_threads_done();
+
+		fprintf(stderr, "reduce ok with range:%d \n", range_n);
+	}
+
+	void gen_word(int pos, int word_len)
+	{
+		cad_gen_t cad_gen(this);
+		trie.dump(cad_gen, pos, word_len);
+	}
+
+	void run_step2()
+	{
+		fprintf(stderr, "begin run_step2\n");
+
+		int range = (total_word+thread_n-1) / thread_n;
+
+		steps_done = 0;	//reset
+
+		for(int i = 0; i < thread_n; i++)
+		{
+			threads[i] = thread(gen_word_run, ref(*this), i*range, range);
+		}
+
+		unique_lock<mutex> lock(m_var);
+		while(steps_done < thread_n)
+		{
+			cond_var.wait(lock);
+		}
+
+		for(int i = 0; i < thread_n; i++) {
+			threads[i].join();
+		}
+
+		fprintf(stderr, "step2 done\n");
+	}
+
 private:
     list<pstring_list> hzstr_list;
 	uint32_t		bucket_num;
@@ -391,6 +623,17 @@ void bucket_run(WordMaker& maker)
 		}
 	}
 	
+	maker.notify_step();
+}
+
+void reduce1(WordMaker& maker) {
+	maker.reduce_step1_run();
+	maker.notify_step();
+}
+
+void gen_word_run(WordMaker& maker, int pos, int word_len)
+{
+	maker.gen_word(pos, word_len);
 	maker.notify_step();
 }
 
