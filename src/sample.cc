@@ -8,6 +8,28 @@
 
 #include <marisa.h>
 
+int dump(const marisa::Trie &trie) {
+  std::size_t num_keys = 0;
+  marisa::Agent agent;
+  agent.set_query("");
+  try {
+    while (trie.predictive_search(agent)) {
+      std::cout.write(agent.key().ptr(), agent.key().length()) << delimiter;
+      if (!std::cout) {
+        std::cerr << "error: failed to write results to standard output"
+            << std::endl;
+        return 20;
+      }
+      ++num_keys;
+    }
+  } catch (const marisa::Exception &ex) {
+    std::cerr << ex.what() << ": predictive_search() failed" << std::endl;
+    return 21;
+  }
+  std::cerr << "#keys: " << num_keys << std::endl;
+  return 0;
+}
+
 int main() {
   marisa::Keyset keyset;
   keyset.push_back("a");
@@ -33,5 +55,8 @@ int main() {
     std::cout.write(agent.key().ptr(), agent.key().length());
     std::cout << ": " << agent.key().id() << std::endl;
   }
+
+  marisa::Trie trie2;
+  ;
   return 0;
 }

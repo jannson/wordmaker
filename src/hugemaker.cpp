@@ -35,6 +35,8 @@
 #include <condition_variable>
 #include <thread>
 
+#include <marisa.h>
+
 #define USE_FAST_LOAD
 #include <cedar.h>
 
@@ -48,7 +50,6 @@ const uint32_t	WORD_LEN = 6 * 2;//n个汉字
 const uint32_t	SHORTEST_WORD_LEN = 2;
 const uint32_t	LEAST_FREQ = 3;
 const float		FREQ_LOG_MIN = -99999999.0;
-const uint32_t	GBK_
 static const size_t NUM_RESULT = 102400;
 
 const float g_entropy_thrhd = 1.7;
@@ -91,7 +92,7 @@ public:
 	{
 		if(wrap_file)
 		{
-			fclose(fd);
+			fclose(wrap_file);
 		}
 	}
 };
@@ -118,7 +119,7 @@ bool gbk_hanzi(const char* str)
 {
     int char_len = gbk_char_len(str);
     if ((char_len == 2)
-			&& ((unsiged char)str[0] < 0xa1 || (unsigned char)str[0] > 0xa9)
+			&& ((unsigned char)str[0] < 0xa1 || (unsigned char)str[0] > 0xa9)
 		) 
 	{
         return true;
@@ -187,14 +188,27 @@ typedef shared_ptr<BucketList> PBucketList;
 class WordMaker;
 
 void bucket_run(WordMaker& maker);
-void reduce1(WordMaker& maker);
-void gen_word_run(WordMaker& maker, int pos, int word_len);
 
 class WordMaker
 {
+	struct trie_combine_t:public trie_iter_t
+	{
+		trie_combine_t(trie_t* trie, marisa::Keyset* kset): keyset(kset), ptrie(trie)
+		{
+		}
+		void operator()(trie_result_t& res)
+		{
+			char suffix[256];
+			ptrie->suffix(suffix, res.length, res.id);
+			string s(suffix);
+			keyset->push_back(s.c_str(), s.length(), (float)res.value);
+		}
+		trie_t* ptrie;
+		marisa::Keyset* keyset;
+	};
 public:
 	WordMaker(const char* inf
-			, const char* ouf,
+			, const char* ouf
 			, int thr=THREAD_N):bucket_num(0)
 							, total_bucket(0)
 							, total_word(0)
@@ -242,6 +256,20 @@ public:
 			fprintf(stderr, "workers %d done, total_words:%d\n", workers, total_word);
 		}
 		fprintf(stderr, "step1 done\n");
+
+		marisa::Keyset kset;
+		for(int i = 0; i < total_bucket; i++) {
+			trie_t trie;
+			string trie_file(ofile_name + "_buck_" + std::to_string((long long int)i));
+			trie.open(trie_file.c_str());
+			trie_combine_t combine(&trie, &kset);
+			trie.dump(combine);
+		}
+		marisa::Trie mar_trie;
+		mar_trie.build(kset, MARISA_LABEL_ORDER);
+		string mar_file(ofile_name + "_mar_");
+		mar_trie.save(mar_file.c_str());
+		fprintf(stderr, "marsa trie saved\n");
 	}
 
 	int space_seperate_line_to_hanzi_vector(char* oline)
@@ -293,7 +321,7 @@ public:
 		
 		bucket_num = 0;
 		steps_done = 0;
-		phz_str.clear();
+		phz_str->clear();
 		hzstr_list.push_back(phz_str);
 	}
 
@@ -326,8 +354,8 @@ public:
 			}
 		}
 
-		string trie_file(ofile_name + "_buck_" + to_string(bucket.id));
-		bucket.trie.save(trie_file.c_str());
+		string trie_file(ofile_name + "_buck_" + std::to_string((long long int)bucket.id));
+		bucket.trie->save(trie_file.c_str());
 		fprintf(stderr, "bucket %d done\n", bucket.id);
 	}
 

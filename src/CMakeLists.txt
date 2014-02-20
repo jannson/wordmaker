@@ -14,4 +14,4 @@ ADD_EXECUTABLE(sample sample.cc)
 TARGET_LINK_LIBRARIES(sample marisa)
 
 ADD_EXECUTABLE(hugemaker hugemaker.cpp)
-TARGET_LINK_LIBRARIES(hugemaker pthread)
+TARGET_LINK_LIBRARIES(hugemaker marisa pthread)
