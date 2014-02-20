@@ -44,8 +44,8 @@ using namespace std;
 
 const uint32_t	THREAD_N = 4;
 const uint32_t	LINE_LEN = 10240;
-const uint32_t	BUCKET_SIZE = 102400;
-const uint32_t	WORKER_SIZE = 0x1000000; //16M
+const uint32_t	BUCKET_SIZE = 102400/8;
+const uint32_t	WORKER_SIZE = 0x1000000/8; //16M
 const uint32_t	WORD_LEN = 6 * 2;//n个汉字
 const uint32_t	SHORTEST_WORD_LEN = 2;
 const uint32_t	LEAST_FREQ = 3;
@@ -108,6 +108,12 @@ void strrev_unicode(string& ref_s)
   short *q, *p = (short*)&ref_s[0];
   q = p+l;
   for(--q; p < q; ++p, --q) SWP(*p, *q);
+}
+
+string _to_string(int nu) {
+	char s[250];
+	sprintf(s, "%d", nu);
+	return string(s);
 }
 
 int gbk_char_len(const char* str)
@@ -230,12 +236,17 @@ class WordMaker
 		}
 		void operator()(trie_result_t& res)
 		{
+		//sstatic int re_len = 100;
 			char suffix[256];
 			ptrie->suffix(suffix, res.length, res.id);
 			string s(suffix);
 			strrev_unicode(s);
 			keyset->push_back(s.c_str(), s.length());
 			weights->push_back(res.value);
+			//if(re_len > 0) {
+			//	fprintf(glog,"%s %s %d\n", suffix, s.c_str(), res.value); 
+			//	re_len--;
+			//}
 		}
 		marisa::Keyset* keyset;
 		trie_t* ptrie;
@@ -295,6 +306,7 @@ class WordMaker
 				, const trie_result_t& res
 				, const int total_freq) 
 		{
+		static int gtest = 100;
 			hash_t		rlt_hash;
 			float entropy = 0.0;
 			marisa::Agent agent;
@@ -305,6 +317,11 @@ class WordMaker
 				int entropy_freq = 0;
 				while(mar_trie->predictive_search(agent)) {
 					string tmp(agent.key().ptr() + word_l, agent.key().ptr() + word_l + 2);
+					//if(gtest > 0) {
+					//    string tt2(agent.key().ptr(), agent.key().length());
+					//	fprintf(glog, "%s %s %s mar_entro \n", word.c_str(), //tt2.c_str(), tmp.c_str());
+					//	gtest--;
+					//}
 					hash_t::iterator it_map = rlt_hash.find(tmp);
 					if (it_map == rlt_hash.end()) {
 						rlt_hash[tmp] = (*weights)[agent.key().id()];
@@ -328,6 +345,7 @@ class WordMaker
 
 		void operator()(trie_result_t& res)
 		{
+		static int gtest = 1000;
 			char suffix[256];
 			seq_trie->suffix(suffix, res.length, res.id);
 
@@ -360,8 +378,9 @@ class WordMaker
 				int right_f = 0;
 				if(((uint8_t)temp_right[0] >= start) && ((uint8_t)temp_right[0] < end)) {
 					//The right word is in this trie too
-					right_f = right_res.value;
 					seq_trie->exactMatchSearch(right_res, temp_right.c_str());
+					right_f = right_res.value;
+					//fprintf(glog, "%s\t%s freq:%d\n", word.c_str(), temp_right.c_str(), right_res.value); 
 				} else {
 					//Search from marisa trie
 					marisa::Agent agent;
@@ -370,6 +389,10 @@ class WordMaker
 					agent.set_query(rev_s.c_str());
 					if(mar_trie->lookup(agent)) {
 						right_f = (*weights)[agent.key().id()];
+						//if(gtest > 0) {
+						//fprintf(glog, "%s\t%s mar:%d\n", word.c_str(), //temp_right.c_str(), (*weights)[agent.key().id()]); 
+						//	gtest--;
+						//}
 					}
 				}
 				if(right_f <= LEAST_FREQ)
@@ -391,6 +414,11 @@ class WordMaker
 			//Now calc right entropy
 			float entropy_r = calc_entropy(word, res, total_freq);
 			if(entropy_r < g_entropy_thrhd) {
+			if(gtest > 0) {
+				fprintf(glog, "%s\t%f\t%f\t seqs\n"
+				, word.c_str(), log_freq, entropy_r); 
+					gtest--;
+				}
 				return;
 			}
 
@@ -401,6 +429,11 @@ class WordMaker
 
 			float entropy_l = calc_entropy_marisa(word_r, res, total_freq);
 			if(entropy_l < g_entropy_thrhd) {
+			if(gtest > 0) {
+				fprintf(glog, "%s\t%f\t%f\t%f revs\n"
+				, word.c_str(), log_freq, entropy_l, entropy_r); 
+					gtest--;
+				}
 				return;
 			}
 			cad_word_result cad_word;
@@ -418,7 +451,7 @@ class WordMaker
 		marisa::Trie*		mar_trie;
 		vector<uint32_t>*	weights;
 		cad_result_list*	presults;
-		static const float	W = 4;
+		static const uint32_t	W = 2;
 	};
 public:
 	WordMaker(const char* inf
@@ -441,18 +474,18 @@ public:
 
 	void remove_buck_files() {
 		for(int i = 0; i < bucket_num; i++) {
-			string trie_file(ofile_name + "_buck_" + std::to_string((long long int)i));
+			string trie_file(ofile_name + "_buck_" + _to_string(i));
 			std::remove(trie_file.c_str());
-			string trie_file2(ofile_name + "_buck_" + std::to_string((long long int)i)+".sbl");
+			string trie_file2(ofile_name + "_buck_" + _to_string(i)+".sbl");
 			std::remove(trie_file2.c_str());
 		}
 	}
 
 	void remove_seq_files() {
 		for(int i = 0; i < seq_range_n; i++) {
-			string trie_file(ofile_name + "_seq_" + std::to_string((long long int)i));
+			string trie_file(ofile_name + "_seq_" + _to_string(i));
 			std::remove(trie_file.c_str());
-			string trie_file2(ofile_name + "_seq_" + std::to_string((long long int)i)+".sbl");
+			string trie_file2(ofile_name + "_seq_" + _to_string(i)+".sbl");
 			std::remove(trie_file2.c_str());
 		}
 	}
@@ -570,7 +603,8 @@ public:
 		for(string_list::iterator it = bucket.hz_str->begin();
 				it != bucket.hz_str->end(); it++)
 		{
-			uint32_t phrase_len = min(static_cast<uint32_t>(it->length()), WORD_LEN);
+			//TODO for WORD_LEN-2
+			uint32_t phrase_len = min(static_cast<uint32_t>(it->length()), WORD_LEN-2);
 			for (uint32_t i = 2; i <= phrase_len; i += 2)
 			{
 				for (string::iterator ic = it->begin(); ic < it->end() - i + 2; ic += 2)
@@ -583,7 +617,7 @@ public:
 			}
 		}
 
-		string trie_file(ofile_name + "_buck_" + std::to_string((long long int)bucket.id));
+		string trie_file(ofile_name + "_buck_" + _to_string(bucket.id));
 		bucket.trie->save(trie_file.c_str());
 		fprintf(stderr, "bucket %d done\n", bucket.id);
 
@@ -639,7 +673,7 @@ public:
 			trie_t seq_trie;
 			//Now only save the word from [start, end)
 			for(int i = 0; i < total_bucket; i++) {
-				string trie_file(ofile_name + "_buck_" + to_string((long long int)i));
+				string trie_file(ofile_name + "_buck_" + _to_string(i));
 				trie_t trie;
 
 				if(-1 != trie.open(trie_file.c_str())) {
@@ -650,7 +684,7 @@ public:
 				trie.dump(seq_combine);
 			}
 			
-			string seq_file(ofile_name + "_seq_" + to_string((long long int) pos));
+			string seq_file(ofile_name + "_seq_" + _to_string(pos));
 			seq_trie.save(seq_file.c_str());
 			fprintf(stderr, "pos:%d done saved keys:%d\n", pos, seq_trie.num_keys());
 		}
@@ -686,7 +720,7 @@ public:
 
 		for(int i = 0; i < seq_range_n; i++) {
 			trie_t trie;
-			string trie_file(ofile_name + "_seq_" + std::to_string((long long int)i));
+			string trie_file(ofile_name + "_seq_" + _to_string(i));
 			int open_status = trie.open(trie_file.c_str());
 			if(-1 != open_status) {
 				fprintf(stderr, "open %s ok keys:%d\n", trie_file.c_str(), trie.num_keys());
@@ -704,13 +738,17 @@ public:
 		 * , You can split the mar_trie into many files and use mmap api of
 		 * mar_trie
 		 */
-		//string mar_file(ofile_name + "_mar_");
-		//mar_trie.save(mar_file.c_str());
-		//fprintf(stderr, "marsa trie saved\n");
+		string mar_file(ofile_name + "_mar_");
+		mar_trie.save(mar_file.c_str());
+		fprintf(stderr, "marsa trie saved\n");
 		
 		//weights_all.reserve(kset.size());
 		weights_all = weights;
 		for(int i = 0; i < kset.size(); i++) {
+		//if(i < 100) {
+		//	string tmp(kset[i].ptr(), kset[i].length());
+		//	fprintf(glog, "%s\n", tmp.c_str());
+		//	}
 			weights_all[kset[i].id()] = weights[i];
 		}
 
@@ -735,7 +773,7 @@ public:
 				break;
 			}
 			trie_t trie;
-			string trie_file(ofile_name + "_seq_" + std::to_string((long long int)pos));
+			string trie_file(ofile_name + "_seq_" + _to_string(pos));
 			trie.open(trie_file.c_str());
 
 			cad_gen_t cad_gen(pos, (uint8_t)start, (uint8_t)end, total_word, &trie
