@@ -266,14 +266,14 @@ class WordMaker
 				pmaker->trie.exactMatchSearch(left_res, temp_left.c_str());
 				int left_f = left_res.value;
 				if(left_f <= LEAST_FREQ)
-					return;
+					continue;
 
 				string temp_right(ic, word.end());
 				trie_result_t right_res;
 				pmaker->trie.exactMatchSearch(right_res, temp_right.c_str());
 				int right_f = right_res.value;
 				if(right_f <= LEAST_FREQ)
-					return;
+					continue;
 
 				float left = log(static_cast<float>(left_f)/total_freq);
 				float right = log(static_cast<float>(right_f)/total_freq);
@@ -309,7 +309,7 @@ class WordMaker
 					, word.c_str(), log_freq, entropy_l, entropy_r);
 		}
 		WordMaker* pmaker;
-		static const float W = 2;
+		static const float W = 4;
 	};
 
 public:
@@ -485,10 +485,13 @@ public:
 			threads[i] = thread(gen_word_run, ref(*this), i*range, range);
 		}
 
-		unique_lock<mutex> lock(m_var);
-		while(step1_done < thread_n)
+		if(step1_done < thread_n)
 		{
-			cond_var.wait(lock);
+			unique_lock<mutex> lock(m_var);
+			while(step1_done < thread_n)
+			{
+				cond_var.wait(lock);
+			}
 		}
 
 		for(int i = 0; i < thread_n; i++) {
@@ -511,7 +514,7 @@ private:
 	
 	int				thread_n;
 	unique_ptr<thread[]> threads;
-	int				step1_done;
+	volatile int	step1_done;
 	mutex			m_var;
 	condition_variable	cond_var;
 

@@ -26,6 +26,8 @@
 #include <vector>
 #include <list>
 #include <functional>
+
+#define USE_FAST_LOAD
 #include <cedar.h>
 
 using namespace std;
@@ -43,7 +45,8 @@ struct ResOper:public iter_func_t
 	{
 		char suffix[1024];
 		ptrie->suffix(suffix, res.length, res.id);
-		fprintf(stderr, "%d:%d:%s\n", res.value, res.length, suffix);
+		//fprintf(stderr, "%d:%d:%s\n", res.value, res.length, suffix);
+		fprintf(stderr, "0x%02x\n", suffix[0]);
 		len++;
 
 #if 0
@@ -87,8 +90,9 @@ void gbk_range(int& start, int& end, int pos, int split_n)
 	//calc start
 	start = 0x80 + pos * range;
 	end = 0x80 + (pos + 1) * range;
-	if((start <= 0xa0) && (end > 0xb0))
+	if((start <= 0xa0) && (end > 0xa0))
 	{
+		fprintf(stderr, "start:%02x end:%02x\n", start, end);
 		end += 0xb0 - 0xa0;
 	}
 	else if(start > 0xa0) {
@@ -160,12 +164,21 @@ int main(int argc, char** argv)
 			, strlen(words[0]), str_tmp.length(), words[0][5]);
 #endif
 
-	int n = 10;
+#if 0
+	int n = 3;
 	for(int i = 0; i < n; i++){
 		int start, end;
 		gbk_range(start, end, i, n);
 		fprintf(stderr, "i %d: [0x%02x, 0x%02x)\n", i, start, end);
 	}
+#endif
+
+	string trie_file("o.txt_buck_0");
+	trie_t trie2;
+	trie2.open(trie_file.c_str());
+	fprintf(stderr, " num keys:%d\n", trie.num_keys());
+	ResOper res(&trie2);
+	trie2.dump(res);
 
 	return 0;
 }

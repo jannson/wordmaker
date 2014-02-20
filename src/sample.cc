@@ -8,6 +8,7 @@
 
 #include <marisa.h>
 
+#if 0
 int dump(const marisa::Trie &trie) {
   std::size_t num_keys = 0;
   marisa::Agent agent;
@@ -29,6 +30,7 @@ int dump(const marisa::Trie &trie) {
   std::cerr << "#keys: " << num_keys << std::endl;
   return 0;
 }
+#endif
 
 int main() {
   marisa::Keyset keyset;
@@ -56,7 +58,5 @@ int main() {
     std::cout << ": " << agent.key().id() << std::endl;
   }
 
-  marisa::Trie trie2;
-  ;
   return 0;
 }
