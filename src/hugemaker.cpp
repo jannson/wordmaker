@@ -640,13 +640,17 @@ public:
 
 	void wait_threads_done()
 	{
-		if(steps_done < thread_n) {	//Fix dead lock bug hear 20/02/14 16:27:03
+		// Fix dead lock bug hear 20/02/14 16:27:03
+		// How to do better for this?
+#if 0
+		if(steps_done < thread_n) {	
 			unique_lock<mutex> lock(m_var);
 			while(steps_done < thread_n)
 			{
-				cond_var.wait(lock);
+				cond_var.wait_for(lock, std::chrono::milliseconds(1000*30));
 			}
 		}
+#endif
 
 		for(int i = 0; i < thread_n; i++) {
 			threads[i].join();

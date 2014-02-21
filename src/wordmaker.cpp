@@ -425,10 +425,11 @@ public:
 
 		while(true)
 		{
+			// TODO how to do better for this
 			unique_lock<mutex> lock(m_var);
 			while((step1_done < thread_n) && trie_list.empty())
 			{
-				cond_var.wait(lock);
+				cond_var.wait_for(lock, std::chrono::milliseconds(1000*30));
 			}
 			if(step1_done < thread_n)
 			{
