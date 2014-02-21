@@ -105,12 +105,24 @@ int gbk_char_len(const char* str)
 
 bool gbk_hanzi(const char* str)
 {
+	unsigned char cmps[3][4] = {{0xb0,0xf7,0xa1,0xfe}
+							, {0x81,0xa0,0x40,0xfe}
+							, {0xaa,0xfe,0x40,0xa0} };
+
     int char_len = gbk_char_len(str);
-    if ((char_len == 2)
-			&& ((unsigned char)str[0] < 0xa1 || (unsigned char)str[0] > 0xa9)
-		) 
+    if (char_len == 2)
+			/*&& ( ((unsigned char)str[0] < 0xa1 || (unsigned char)str[0] > 0xa9)*/
 	{
-        return true;
+		for(int i = 0; i < 3; i++) {
+			if( ((unsigned char)str[0] >= cmps[i][0])
+					&& ((unsigned char)str[0] <= cmps[i][1])
+					&& ((unsigned char)str[1] >= cmps[i][2])
+					&& ((unsigned char)str[1] <= cmps[i][3])
+			  ) {
+				return true;
+			}
+		}
+        return false;
     }
     return false;
 }
@@ -321,7 +333,7 @@ public:
 							, step1_done(0)
 							, thread_n(thr)
 							, phz_str(make_shared<string_list>())
-							, threads(new thread[thr])
+							//, threads(new thread[thr])
 							, out_file(filename, "w")
 	{
 		hzstr_list.push_back(phz_str);
@@ -375,6 +387,8 @@ public:
 	{
 		fprintf(stderr, "begin run_step1 using thread:%d\n", thread_n);
 
+		unique_ptr<thread[]> nths(new thread[thread_n]);
+		threads = std::move(nths);
 		for(int i = 0; i < thread_n; i++)
 		{
 			threads[i] = thread(bucket_run, ref(*this));
@@ -449,7 +463,13 @@ public:
 		// Check that all thread exit
 		for(int i = 0; i < thread_n; i++)
 		{
-			threads[i].join();
+			assert(threads[i].joinable());
+			try {
+				threads[i].join();
+			}
+			catch(std::system_error& s_e) {
+				fprintf(stderr, "sys error in thread:%d\n", i);
+			}
 		}
 
 		fprintf(stderr, "thread all done\n");
@@ -482,6 +502,8 @@ public:
 
 		step1_done = 0;	//reset
 
+		unique_ptr<thread[]> nths(new thread[thread_n]);
+		threads = std::move(nths);
 		for(int i = 0; i < thread_n; i++)
 		{
 			threads[i] = thread(gen_word_run, ref(*this), i*range, range);
@@ -497,7 +519,13 @@ public:
 		}
 
 		for(int i = 0; i < thread_n; i++) {
-			threads[i].join();
+			assert(threads[i].joinable());
+			try {
+				threads[i].join();
+			}
+			catch(std::system_error& s_e) {
+				fprintf(stderr, "sys error in thread:%d\n", i);
+			}
 		}
 
 		fprintf(stderr, "step2 done\n");
