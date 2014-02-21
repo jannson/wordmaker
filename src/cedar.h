@@ -18,7 +18,7 @@ namespace cedar {
   typedef unsigned char  uchar;
   template <typename T> struct NaN { enum { N1 = -1, N2 = -2 }; };
   template <> struct NaN <float> { enum { N1 = 0x7f800001, N2 = 0x7f800002 }; };
-  static const int MAX_ALLOC_SIZE = 1 << 16; // must be divisible by 256
+  static const int MAX_ALLOC_SIZE = 1 << 21; // must be divisible by 256
   // dynamic double array
   template <typename value_type,
             const int     NO_VALUE  = NaN <value_type>::N1,

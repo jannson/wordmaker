@@ -37,6 +37,7 @@
 
 #include <marisa.h>
 
+#define USE_EXACT_FIT
 #define USE_FAST_LOAD
 #include <cedar.h>
 
@@ -571,7 +572,7 @@ public:
 		while (pch != NULL) {
 			string hz(pch);
 			size_t hz_l = hz.length();
-
+			assert(hz_l < 1024*2);
 			if(hz_l > 2)
 			{
 				if(bucket_num >= BUCKET_SIZE)
@@ -603,6 +604,7 @@ public:
 
 		pstring_list first = hzstr_list.front();
 		hzstr_list.pop_front();
+		//assert(first->size() != 0);
 		bucket.hz_str = first;
 		bucket.trie = make_shared<trie_t>();
 		bucket.id = total_bucket++;
@@ -621,7 +623,7 @@ public:
 
 	void run_step1()
 	{
-		fprintf(stderr, "run_step1 using thread:%d\n", thread_n);
+		fprintf(stderr, "run_step1 using threads:%d\n", thread_n);
 
 		unique_ptr<thread[]> nths(new thread[thread_n]);
 		threads = std::move(nths);
@@ -636,30 +638,54 @@ public:
 
 	void bucket_process(Bucket& bucket)
 	{
+		const uint32_t loop_ever = 5123456;
+
 		uint32_t word_l = 0;
 		for(string_list::iterator it = bucket.hz_str->begin();
 				it != bucket.hz_str->end(); it++)
 		{
 			//TODO for WORD_LEN-2
-			uint32_t phrase_len = min(static_cast<uint32_t>(it->length()), WORD_LEN);
+			size_t it_len = it->length();
+			uint32_t phrase_len = min(static_cast<uint32_t>(it_len), WORD_LEN);
+			assert(it_len < 1024*2);
 			for (uint32_t i = 2; i <= phrase_len; i += 2)
 			{
 				for (string::iterator ic = it->begin(); ic < it->end() - i + 2; ic += 2)
 				{
 					string tmp(ic, ic + i);
 					//add 1
-					bucket.trie->update(tmp.c_str(), tmp.length(), 1);
-					word_l += 1;
+					bucket.trie->update(tmp.c_str(), i, 1);
+					word_l++;
+
+					assert(word_l < loop_ever);
+				}
+
+				//assert(word_l < loop_ever);
+				if(word_l > loop_ever) {
+					fprintf(stderr, "bucket: %d LOOP with word len:%d\n", bucket.id, it->length());
+					break;
 				}
 			}
+			if(word_l > loop_ever) {
+				break;
+			}
+			//assert(word_l < loop_ever);
 		}
 
-		string trie_file(ofile_name + "_buck_" + _to_string(bucket.id));
-		bucket.trie->save(trie_file.c_str());
-		fprintf(stderr, "bucket %d done\n", bucket.id);
+		//if(word_l >= loop_ever) {
+		//	fprintf(stderr, "Error loop forever %d\n", __LINE__);
+		//	return;
+		//}
+		
+		if(word_l > 0) {
 
-		unique_lock<mutex> lock(m_var);
-		total_word += word_l;
+			string trie_file(ofile_name + "_buck_" + _to_string(bucket.id));
+			bucket.trie->save(trie_file.c_str());
+			fprintf(stderr, "bucket %d done with words:%d\n", bucket.id, word_l);
+
+			unique_lock<mutex> lock(m_var);
+			total_word += word_l;
+		}
 	}
 
 	void notify_step()
@@ -667,7 +693,7 @@ public:
 		unique_lock<mutex> lock(m_var);
 		//fprintf(stderr, "done %d\n", steps_done);
 		steps_done++;
-		cond_var.notify_one();
+		//cond_var.notify_one();
 	}
 
 	void wait_threads_done()
@@ -684,10 +710,19 @@ public:
 		}
 #endif
 
+#if 1
+
 		for(int i = 0; i < thread_n; i++) {
 			assert(threads[i].joinable());
-			threads[i].join();
+			try {
+				threads[i].join();
+			}
+			catch(std::system_error& s_e) {
+				fprintf(stderr, "sys error in thread:%d\n", i);
+			}
 		}
+#endif
+
 	}
 
 	int reduce1_next() {
@@ -920,17 +955,30 @@ private:
 
 void bucket_run(WordMaker& maker)
 {
-	while(true)
+	const int loop_ever = 1000;
+	int curr_loop = 0;
+
+	while(curr_loop < loop_ever)
 	{
 		Bucket bucket;
-		if(maker.get_bucket(bucket))
-		{
-			maker.bucket_process(bucket);
+		try {
+			if(maker.get_bucket(bucket))
+			{
+				//fprintf(stderr, "bucket starting id=%d size:%d\n", bucket.id, bucket.hz_str->size());
+				maker.bucket_process(bucket);
+			}
+			else
+			{
+				break;
+			}
 		}
-		else
-		{
-			break;
+		catch(...) {
+			fprintf(stderr, "error happened hear %d\n", __LINE__);
 		}
+		curr_loop++;
+	}
+	if(curr_loop == loop_ever) {
+		fprintf(stderr, "error loop forever hear %d\n", __LINE__);
 	}
 	
 	maker.notify_step();
