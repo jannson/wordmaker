@@ -44,8 +44,8 @@ using namespace std;
 
 const uint32_t	THREAD_N = 4;
 const uint32_t	LINE_LEN = 10240;
-const uint32_t	BUCKET_SIZE = 102400/8;
-const uint32_t	WORKER_SIZE = 0x1000000/8; //16M
+const uint32_t	BUCKET_SIZE = 102400;
+const uint32_t	WORKER_SIZE = 0x1000000; //16M
 const uint32_t	WORD_LEN = 6 * 2;//n个汉字
 const uint32_t	SHORTEST_WORD_LEN = 2;
 const uint32_t	LEAST_FREQ = 3;
@@ -96,9 +96,9 @@ public:
 		}
 	}
 };
-//#ifdef DEBUG
+#ifdef DEBUG
 static WrapFile glog("log.txt", "w");
-//#endif
+#endif
 
 #define SWP(x,y) (x^=y, y^=x, x^=y)
 
@@ -204,6 +204,10 @@ void bucket_run(WordMaker& maker);
 void reduce1(WordMaker& maker);
 void map_step2(WordMaker& maker, cad_result_list& cad_results);
 
+bool cad_word_weight_cmp(const cad_word_result & w1, const cad_word_result& w2) {
+	return (w1.freq > w2.freq);
+}
+
 class WordMaker
 {
 	struct sequence_combine_t: public trie_iter_t
@@ -236,33 +240,55 @@ class WordMaker
 		}
 		void operator()(trie_result_t& res)
 		{
-		//sstatic int re_len = 100;
 			char suffix[256];
 			ptrie->suffix(suffix, res.length, res.id);
 			string s(suffix);
 			strrev_unicode(s);
 			keyset->push_back(s.c_str(), s.length());
 			weights->push_back(res.value);
-			//if(re_len > 0) {
-			//	fprintf(glog,"%s %s %d\n", suffix, s.c_str(), res.value); 
-			//	re_len--;
-			//}
 		}
 		marisa::Keyset* keyset;
 		trie_t* ptrie;
 		vector<uint32_t>* weights;
 	};
+	struct check_weight_t : public trie_iter_t
+	{
+		check_weight_t(trie_t* trie1, marisa::Trie* trie2, vector<uint32_t>* ws)
+			: ptrie(trie1), martrie(trie2), weights(ws)
+		{
+		}
+		void operator()(trie_result_t& res)
+		{
+			char suffix[256];
+			ptrie->suffix(suffix, res.length, res.id);
+			string s(suffix);
+			strrev_unicode(s);
+	
+			marisa::Agent agent;
+			agent.set_query(s.c_str());
+			if(martrie->lookup(agent)) {
+				assert(res.value == (*weights)[agent.key().id()]);
+			}
+			else {
+				assert(false);
+			}
+		}
+		trie_t*				ptrie;
+		marisa::Trie*		martrie;
+		vector<uint32_t>*	weights;
+	};
 	struct cad_gen_t: public trie_iter_t
 	{
 		cad_gen_t(int p, unsigned char ss, unsigned char ee
-				, uint32_t total_word, trie_t* trie1
+				, uint32_t to_word, trie_t* trie1
 				, marisa::Trie* trie2, vector<uint32_t>* ws,  cad_result_list* pres):
-			pos(p), start(ss), end(ee), seq_trie(trie1), mar_trie(trie2), weights(ws), presults(pres)
+			pos(p), start(ss), end(ee), total_word(to_word)
+			, seq_trie(trie1), mar_trie(trie2), weights(ws), presults(pres)
 		{
 		}
 		float calc_entropy(const string& word
 				, const trie_result_t& res
-				, const int total_freq) 
+				, const uint32_t total_freq) 
 		{
 			char suffix[256];
 			hash_t		rlt_hash;
@@ -304,9 +330,8 @@ class WordMaker
 
 		float calc_entropy_marisa(const string& word
 				, const trie_result_t& res
-				, const int total_freq) 
+				, const uint32_t total_freq) 
 		{
-		static int gtest = 100;
 			hash_t		rlt_hash;
 			float entropy = 0.0;
 			marisa::Agent agent;
@@ -317,11 +342,6 @@ class WordMaker
 				int entropy_freq = 0;
 				while(mar_trie->predictive_search(agent)) {
 					string tmp(agent.key().ptr() + word_l, agent.key().ptr() + word_l + 2);
-					//if(gtest > 0) {
-					//    string tt2(agent.key().ptr(), agent.key().length());
-					//	fprintf(glog, "%s %s %s mar_entro \n", word.c_str(), //tt2.c_str(), tmp.c_str());
-					//	gtest--;
-					//}
 					hash_t::iterator it_map = rlt_hash.find(tmp);
 					if (it_map == rlt_hash.end()) {
 						rlt_hash[tmp] = (*weights)[agent.key().id()];
@@ -345,7 +365,6 @@ class WordMaker
 
 		void operator()(trie_result_t& res)
 		{
-		static int gtest = 1000;
 			char suffix[256];
 			seq_trie->suffix(suffix, res.length, res.id);
 
@@ -389,10 +408,6 @@ class WordMaker
 					agent.set_query(rev_s.c_str());
 					if(mar_trie->lookup(agent)) {
 						right_f = (*weights)[agent.key().id()];
-						//if(gtest > 0) {
-						//fprintf(glog, "%s\t%s mar:%d\n", word.c_str(), //temp_right.c_str(), (*weights)[agent.key().id()]); 
-						//	gtest--;
-						//}
 					}
 				}
 				if(right_f <= LEAST_FREQ)
@@ -414,11 +429,6 @@ class WordMaker
 			//Now calc right entropy
 			float entropy_r = calc_entropy(word, res, total_freq);
 			if(entropy_r < g_entropy_thrhd) {
-			if(gtest > 0) {
-				fprintf(glog, "%s\t%f\t%f\t seqs\n"
-				, word.c_str(), log_freq, entropy_r); 
-					gtest--;
-				}
 				return;
 			}
 
@@ -429,11 +439,6 @@ class WordMaker
 
 			float entropy_l = calc_entropy_marisa(word_r, res, total_freq);
 			if(entropy_l < g_entropy_thrhd) {
-			if(gtest > 0) {
-				fprintf(glog, "%s\t%f\t%f\t%f revs\n"
-				, word.c_str(), log_freq, entropy_l, entropy_r); 
-					gtest--;
-				}
 				return;
 			}
 			cad_word_result cad_word;
@@ -451,7 +456,7 @@ class WordMaker
 		marisa::Trie*		mar_trie;
 		vector<uint32_t>*	weights;
 		cad_result_list*	presults;
-		static const uint32_t	W = 2;
+		static const uint32_t	W = 1;
 	};
 public:
 	WordMaker(const char* inf
@@ -676,9 +681,14 @@ public:
 				string trie_file(ofile_name + "_buck_" + _to_string(i));
 				trie_t trie;
 
-				if(-1 != trie.open(trie_file.c_str())) {
-					fprintf(stderr, "open %s trie ok keys:%d\n", trie_file.c_str(), trie.num_keys());
+				if(-1 == trie.open(trie_file.c_str())) {
+					fprintf(stderr, "open %s trie error\n", trie_file.c_str());
+					continue;
 				}
+				//Ignore the ok print
+				//else {
+				//	fprintf(stderr, "open %s trie ok keys:%d\n", trie_file.c_str(), trie.num_keys());
+				//}
 
 				sequence_combine_t seq_combine((uint8_t)start, (uint8_t)end, &trie, &seq_trie);
 				trie.dump(seq_combine);
@@ -729,6 +739,7 @@ public:
 			reverse_combine_t combine(&trie, &kset, &weights);
 			trie.dump(combine);
 		}
+		assert(weights.size() == kset.size());
 		fprintf(stderr, "build marisa trie. real total words:%d \n", kset.size());
 		total_word = kset.size();
 		//Use 9 tries for space-efficient
@@ -738,19 +749,31 @@ public:
 		 * , You can split the mar_trie into many files and use mmap api of
 		 * mar_trie
 		 */
-		string mar_file(ofile_name + "_mar_");
-		mar_trie.save(mar_file.c_str());
-		fprintf(stderr, "marsa trie saved\n");
+		//string mar_file(ofile_name + "_mar_");
+		//mar_trie.save(mar_file.c_str());
+		//fprintf(stderr, "marsa trie saved\n");
 		
 		//weights_all.reserve(kset.size());
 		weights_all = weights;
 		for(int i = 0; i < kset.size(); i++) {
-		//if(i < 100) {
-		//	string tmp(kset[i].ptr(), kset[i].length());
-		//	fprintf(glog, "%s\n", tmp.c_str());
-		//	}
 			weights_all[kset[i].id()] = weights[i];
 		}
+
+		/* Just test for weights */
+#if 0
+		fprintf(stderr, "Checking the weights\n");
+		for(int i = 0; i < seq_range_n; i++) {
+			trie_t trie;
+			string trie_file(ofile_name + "_seq_" + _to_string(i));
+			int open_status = trie.open(trie_file.c_str());
+			if(-1 != open_status) {
+				fprintf(stderr, "open %s ok keys:%d\n", trie_file.c_str(), trie.num_keys());
+			}
+			assert(-1 != open_status);
+			check_weight_t check_weight(&trie, &mar_trie, &weights_all);
+			trie.dump(check_weight);
+		}
+#endif
 
 	}
 
@@ -804,15 +827,34 @@ public:
 	}
 
 	void reduce2(unique_ptr<cad_result_list[]>& result_lists) {
-		/* Just output */
+		//Change to false to order by word
+		bool sort_weight = true;
+		
 		WrapFile ofile(ofile_name.c_str(), "w");
-		for(int i = 0; i < seq_range_n; i++) {
-			cad_result_list& result_list = result_lists[i];
-			for(cad_result_list::iterator it = result_list.begin();
-					it != result_list.end(); it++) {
+		if(sort_weight){
+			fprintf(stderr, "Sorted the results by weight\n");
+			cad_result_list weight_results;
+			for(int i = 0; i < seq_range_n; i++) {
+				cad_result_list& result_list = result_lists[i];
+				result_list.sort(cad_word_weight_cmp);
+				weight_results.merge(result_list, cad_word_weight_cmp);
+			}
+			for(cad_result_list::iterator it = weight_results.begin();
+					it != weight_results.end(); it++) {
 				fprintf(ofile, "%s\t%d\n", it->word.c_str(), it->freq);
 			}
+		} else {
+			/* Sorted by word already */
+			fprintf(stderr, "Sorted the results by word\n");
+			for(int i = 0; i < seq_range_n; i++) {
+				cad_result_list& result_list = result_lists[i];
+				for(cad_result_list::iterator it = result_list.begin();
+						it != result_list.end(); it++) {
+					fprintf(ofile, "%s\t%d\n", it->word.c_str(), it->freq);
+				}
+			}
 		}
+
 	}
 
 private:

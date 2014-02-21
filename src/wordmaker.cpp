@@ -64,34 +64,28 @@ typedef list<trie_result_t> trie_result_list;
 typedef trie_t::iter_func trie_iter_t;
 typedef unique_ptr<FILE, int (*)(FILE*)> unique_file_ptr;
 
-class Log
+class WrapFile
 {
+	typedef FILE*	ptr;
+	ptr				wrap_file;
 public:
-	Log(const char* filename):fd(0)
-	{
-        fd = fopen(filename, "w");
+	WrapFile(const char* filename, const char* flag):
+		wrap_file(fopen(filename, flag))
+	{}
+	operator ptr() const {
+		return wrap_file;
 	}
-	void log(const char* fmt, ...)
+	~WrapFile()
 	{
-		va_list args;
-		va_start(args, fmt);
-		fprintf(fd, fmt, args);
-		va_end(args);
-	}
-	~Log()
-	{
-		if(fd)
+		if(wrap_file)
 		{
-			fclose(fd);
+			fclose(wrap_file);
 		}
 	}
-//private:
-public:
-	FILE* fd;
 };
 
 #ifdef DEBUG
-static Log glog("log.txt");
+static WrapFile glog("log.txt", "w");
 #endif
 
 #define SWP(x,y) (x^=y, y^=x, x^=y)
@@ -197,7 +191,7 @@ class WordMaker
 		float calc_entropy(const string& word
 				, const trie_result_t& res
 				, trie_t& entro_trie
-				, const int total_freq) 
+				, const uint32_t total_freq) 
 		{
 			char suffix[256];
 			hash_t		rlt_hash;
@@ -240,6 +234,8 @@ class WordMaker
 
 		void operator()(trie_result_t& res)
 		{
+			static int gtest = 1000;
+
 			char suffix[256];
 			pmaker->trie.suffix(suffix, res.length, res.id);
 			//fprintf(glog.fd, "word:%s\t%d\n", suffix, res.id);
@@ -257,7 +253,11 @@ class WordMaker
 				return;
 			}
 			
-			int total_freq = pmaker->total_word/W;
+			uint32_t total_freq = pmaker->total_word/W;
+			if(gtest == 1000){
+				fprintf(stderr, "total_word:%d\n", pmaker->total_word);
+				gtest--;
+			}
 
 			float max_ff = FREQ_LOG_MIN;
 			for (string::iterator ic = word.begin() + 2; ic <= word.end() - 2; ic += 2) {
@@ -305,8 +305,9 @@ class WordMaker
 			if(entropy_l < g_entropy_thrhd) {
 				return;
 			}
-			fprintf(pmaker->out_file.fd, "%s\t%f\t%f\t%f\n"
-					, word.c_str(), log_freq, entropy_l, entropy_r);
+			//fprintf(pmaker->out_file, "%s\t%f\t%f\t%f\n"
+			//		, word.c_str(), log_freq, entropy_l, entropy_r);
+			fprintf(pmaker->out_file, "%s\t%d\n", word.c_str(), res.value);
 		}
 		WordMaker* pmaker;
 		static const float W = 4;
@@ -321,7 +322,7 @@ public:
 							, thread_n(thr)
 							, phz_str(make_shared<string_list>())
 							, threads(new thread[thr])
-							, out_file(filename)
+							, out_file(filename, "w")
 	{
 		hzstr_list.push_back(phz_str);
 	}
@@ -518,7 +519,7 @@ private:
 	mutex			m_var;
 	condition_variable	cond_var;
 
-	Log		out_file;
+	WrapFile		out_file;
 };
 
 void bucket_run(WordMaker& maker)
