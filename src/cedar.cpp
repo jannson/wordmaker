@@ -80,24 +80,46 @@ void test_res(result_t& res)
 	fprintf(stderr, "ResOper %d\n", __LINE__);
 }
 
-//get the range in [start, end)
 void gbk_range(int& start, int& end, int pos, int split_n)
 {
-	//[81~A0] [B0~FE]
-	const int total = (0xa0 - 0x80 + 1) + (0xfe - 0xb0 + 1);
-	const int range = (total + split_n - 1)/split_n;
-
-	//calc start
-	start = 0x80 + pos * range;
-	end = 0x80 + (pos + 1) * range;
-	if((start <= 0xa0) && (end > 0xa0))
-	{
-		fprintf(stderr, "start:%02x end:%02x\n", start, end);
-		end += 0xb0 - 0xa0;
+	if (split_n > 3) {
+		const int RANGE_START = 0xb3;
+		const int RANGE_END = 0xf2;
+		if (0 == pos) {
+			start = 0x80;
+			end = RANGE_START;
+		}
+		else if(pos == (split_n - 1)){
+			start = RANGE_END;
+			end = 0xff;
+		}
+		else {
+			int n = split_n - 2;
+			const int total = (RANGE_END - RANGE_START);
+			const int range = (total + n - 1)/n;
+			start = RANGE_START + (pos - 1)*range;
+			end = RANGE_START + pos*range;
+			if (end >= RANGE_END) {
+				end = RANGE_END;
+			}
+		}
 	}
-	else if(start > 0xa0) {
-		start += 0xb0 - 0xa0;
-		end += 0xb0 - 0xa0;
+	else {
+		//[81~A0] [B0~FE]
+		const int total = (0xa0 - 0x80 + 1) + (0xfe - 0xb0 + 1);
+		const int range = (total + split_n - 1)/split_n;
+
+		//calc start
+		start = 0x80 + pos * range;
+		end = 0x80 + (pos + 1) * range;
+		if((start <= 0xa0) && (end > 0xa0))
+		{
+			end += 0xb0 - 0xa0;
+		}
+		else if(start > 0xa0) {
+			start += 0xb0 - 0xa0;
+			end += 0xb0 - 0xa0;
+		}
 	}
 }
 
@@ -164,8 +186,8 @@ int main(int argc, char** argv)
 			, strlen(words[0]), str_tmp.length(), words[0][5]);
 #endif
 
-#if 0
-	int n = 3;
+#if 1
+	int n = 4;
 	for(int i = 0; i < n; i++){
 		int start, end;
 		gbk_range(start, end, i, n);
@@ -173,12 +195,14 @@ int main(int argc, char** argv)
 	}
 #endif
 
+#if 0
 	string trie_file("o.txt_buck_0");
 	trie_t trie2;
 	trie2.open(trie_file.c_str());
 	fprintf(stderr, " num keys:%d\n", trie.num_keys());
 	ResOper res(&trie2);
 	trie2.dump(res);
+#endif
 
 	return 0;
 }

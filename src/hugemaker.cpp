@@ -44,7 +44,7 @@ using namespace std;
 
 const uint32_t	THREAD_N = 4;
 const uint32_t	LINE_LEN = 10240;
-const uint32_t	BUCKET_SIZE = 102400;
+const uint32_t	BUCKET_SIZE = 2*1024*1024;
 const uint32_t	WORKER_SIZE = 0x1000000; //16M
 const uint32_t	WORD_LEN = 6 * 2;//n个汉字
 const uint32_t	SHORTEST_WORD_LEN = 2;
@@ -136,20 +136,44 @@ bool gbk_hanzi(const char* str)
 //get the range in [start, end)
 void gbk_range(int& start, int& end, int pos, int split_n)
 {
-	//[81~A0] [B0~FE]
-	const int total = (0xa0 - 0x80 + 1) + (0xfe - 0xb0 + 1);
-	const int range = (total + split_n - 1)/split_n;
-
-	//calc start
-	start = 0x80 + pos * range;
-	end = 0x80 + (pos + 1) * range;
-	if((start <= 0xa0) && (end > 0xa0))
-	{
-		end += 0xb0 - 0xa0;
+	if (split_n > 3) {
+		const int RANGE_START = 0xb4;
+		const int RANGE_END = 0xf1;
+		if (0 == pos) {
+			start = 0x80;
+			end = RANGE_START;
+		}
+		else if(pos == (split_n - 1)){
+			start = RANGE_END;
+			end = 0xff;
+		}
+		else {
+			int n = split_n - 2;
+			const int total = (RANGE_END - RANGE_START);
+			const int range = (total + n - 1)/n;
+			start = RANGE_START + (pos - 1)*range;
+			end = RANGE_START + pos * range;
+			if (end >= RANGE_END) {
+				end = RANGE_END;
+			}
+		}
 	}
-	else if(start > 0xa0) {
-		start += 0xb0 - 0xa0;
-		end += 0xb0 - 0xa0;
+	else {
+		//[81~A0] [B0~FE]
+		const int total = (0xa0 - 0x80 + 1) + (0xfe - 0xb0 + 1);
+		const int range = (total + split_n - 1)/split_n;
+
+		//calc start
+		start = 0x80 + pos * range;
+		end = 0x80 + (pos + 1) * range;
+		if((start <= 0xa0) && (end > 0xa0))
+		{
+			end += 0xb0 - 0xa0;
+		}
+		else if(start > 0xa0) {
+			start += 0xb0 - 0xa0;
+			end += 0xb0 - 0xa0;
+		}
 	}
 }
 
@@ -467,7 +491,7 @@ public:
 							, total_word(0)
 							, steps_done(0)
 							, thread_n(thr)
-							, threads(new thread[thr])
+							//, threads(new thread[thr]) Init it after
 							, in_file(inf, "r")
 							, ofile_name(ouf)
 	{
@@ -478,7 +502,7 @@ public:
 	}
 
 	void remove_buck_files() {
-		for(int i = 0; i < bucket_num; i++) {
+		for(int i = 0; i < total_bucket; i++) {
 			string trie_file(ofile_name + "_buck_" + _to_string(i));
 			std::remove(trie_file.c_str());
 			string trie_file2(ofile_name + "_buck_" + _to_string(i)+".sbl");
@@ -521,6 +545,10 @@ public:
 		int workers = 0;
 		bool next = true;
 
+		if(!in_file) {
+			fprintf(stderr, "Cannot open the input file\n");
+		}
+
 		while(next) {
 			reset_step1();
 			next = bulk_text();
@@ -542,8 +570,9 @@ public:
 		char* pch = strtok(oline, " ");
 		while (pch != NULL) {
 			string hz(pch);
+			size_t hz_l = hz.length();
 
-			if(hz.length() > 2)
+			if(hz_l > 2)
 			{
 				if(bucket_num >= BUCKET_SIZE)
 				{
@@ -555,7 +584,7 @@ public:
 				}
 
 				phz_str->push_back(hz);
-				bucket_num++;
+				bucket_num += hz_l;
 			}
 
 			pch = strtok(NULL, " ");
@@ -594,6 +623,9 @@ public:
 	{
 		fprintf(stderr, "run_step1 using thread:%d\n", thread_n);
 
+		unique_ptr<thread[]> nths(new thread[thread_n]);
+		threads = std::move(nths);
+
 		for(int i = 0; i < thread_n; i++)
 		{
 			threads[i] = thread(bucket_run, ref(*this));
@@ -609,7 +641,7 @@ public:
 				it != bucket.hz_str->end(); it++)
 		{
 			//TODO for WORD_LEN-2
-			uint32_t phrase_len = min(static_cast<uint32_t>(it->length()), WORD_LEN-2);
+			uint32_t phrase_len = min(static_cast<uint32_t>(it->length()), WORD_LEN);
 			for (uint32_t i = 2; i <= phrase_len; i += 2)
 			{
 				for (string::iterator ic = it->begin(); ic < it->end() - i + 2; ic += 2)
@@ -653,6 +685,7 @@ public:
 #endif
 
 		for(int i = 0; i < thread_n; i++) {
+			assert(threads[i].joinable());
 			threads[i].join();
 		}
 	}
@@ -710,7 +743,7 @@ public:
 
 		//generate random tries to sequence tries
 		seq_range_pos = 0;
-		seq_range_n = (total_bucket + SEG - 1) / SEG;
+		seq_range_n = (total_bucket + SEG - 1) / SEG + 2;
 		if(seq_range_n < thread_n) {
 			seq_range_n = thread_n;
 		}
@@ -862,10 +895,10 @@ public:
 	}
 
 private:
-    list<pstring_list> hzstr_list;
-	uint32_t		bucket_num;
-	pstring_list	phz_str;
-	uint32_t		total_bucket;
+    list<pstring_list>		hzstr_list;
+	uint32_t				bucket_num;
+	pstring_list			phz_str;
+	volatile uint32_t		total_bucket;
 
 	marisa::Trie		mar_trie;
 	vector<uint32_t>	weights_all;
