@@ -124,12 +124,24 @@ int gbk_char_len(const char* str)
 
 bool gbk_hanzi(const char* str)
 {
+	unsigned char cmps[3][4] = {{0xb0,0xf7,0xa1,0xfe}
+							, {0x81,0xa0,0x40,0xfe}
+							, {0xaa,0xfe,0x40,0xa0} };
+
     int char_len = gbk_char_len(str);
-    if ((char_len == 2)
-			&& ((unsigned char)str[0] < 0xa1 || (unsigned char)str[0] > 0xa9)
-		) 
+    if (char_len == 2)
+			/*&& ( ((unsigned char)str[0] < 0xa1 || (unsigned char)str[0] > 0xa9)*/
 	{
-        return true;
+		for(int i = 0; i < 3; i++) {
+			if( ((unsigned char)str[0] >= cmps[i][0])
+					&& ((unsigned char)str[0] <= cmps[i][1])
+					&& ((unsigned char)str[1] >= cmps[i][2])
+					&& ((unsigned char)str[1] <= cmps[i][3])
+			  ) {
+				return true;
+			}
+		}
+        return false;
     }
     return false;
 }
@@ -660,23 +672,9 @@ public:
 					assert(word_l < loop_ever);
 				}
 
-				//assert(word_l < loop_ever);
-				if(word_l > loop_ever) {
-					fprintf(stderr, "bucket: %d LOOP with word len:%d\n", bucket.id, it->length());
-					break;
-				}
 			}
-			if(word_l > loop_ever) {
-				break;
-			}
-			//assert(word_l < loop_ever);
 		}
 
-		//if(word_l >= loop_ever) {
-		//	fprintf(stderr, "Error loop forever %d\n", __LINE__);
-		//	return;
-		//}
-		
 		if(word_l > 0) {
 
 			string trie_file(ofile_name + "_buck_" + _to_string(bucket.id));

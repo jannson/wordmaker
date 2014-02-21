@@ -123,6 +123,28 @@ void gbk_range(int& start, int& end, int pos, int split_n)
 	}
 }
 
+class WrapFile
+{
+	typedef FILE*	ptr;
+	ptr				wrap_file;
+public:
+	WrapFile(const char* filename, const char* flag):
+		wrap_file(fopen(filename, flag))
+	{}
+	operator ptr() const {
+		return wrap_file;
+	}
+	~WrapFile()
+	{
+		if(wrap_file)
+		{
+			fclose(wrap_file);
+		}
+	}
+};
+
+static WrapFile glog("log.txt", "w");
+
 int main(int argc, char** argv)
 {
 	char* words[] = {"appled", "at", "app", "aword", "awt", "我们", "我"};
@@ -203,6 +225,30 @@ int main(int argc, char** argv)
 	ResOper res(&trie2);
 	trie2.dump(res);
 #endif
+
+	char s[10];
+	s[0] = -7;
+	s[1] = -41;
+	s[2] = '\0';
+	trie.update(s, strlen(s), 1);
+	fprintf(glog, "%s %02x %02x\n", s, s[0], s[1]);
+	char* str = s;
+
+	unsigned char cmps[3][4] = {{0xb0,0xf7,0xa1,0xfe}
+							, {0x81,0xa0,0x40,0xfe}
+							, {0xaa,0xfe,0x40,0xa0} };
+		for(int i = 0; i < 3; i++) {
+			if( ((unsigned char)str[0] >= cmps[i][0])
+					&& ((unsigned char)str[0] <= cmps[i][1])
+					&& ((unsigned char)str[1] >= cmps[i][2])
+					&& ((unsigned char)str[1] <= cmps[i][3])
+			  ) {
+				fprintf(stderr, "ok i = %d %02x\n", i, cmps[i][3]);
+				break;
+			}
+		}
+		fprintf(stderr, "%02x %02x\n", (unsigned char)str[1], cmps[2][3]);
+		//assert((unsigned char)str[1] <= cmps[2][3]);
 
 	return 0;
 }
