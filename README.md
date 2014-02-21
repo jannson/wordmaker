@@ -16,22 +16,31 @@ wordmaker 词语生成工具
 * 默认启用4个线程，可以修改代码的宏，也可以自己加命令行。
 * 为了代码的简单，只支持gbk编码。
 * 在linux/cygwin下编码成功，visual studio下应该也没问题吧。
-* 因工作关系用C比C++时间多，希望使用代码的人看到代码有任何不符合现在c++观点的作法及时指出，以做交流！
+* 因工作关系用C比C++时间多得多，希望使用代码的人看到代码有任何不符合现在c++观点的作法及时指出，以做交流！
 
 编译与使用
 ==========
 mkdir build
+
 cd build
+
 cmake28 ..
+
 make
+
 ./bin/wordmaker input.txt output.txt  或者
+
 ./bin/hugemaker input.txt output.txt
 
 linux下可以使用：
+
 iconv -f "gbk" -t "utf-8//IGNORE" < infile > outfile
+
 进行编码转换。windows下当然可以使用notepad++了，转换成ANSI。
 
 测试语料
 ========
 sogou的新闻语料，把各个文本合成在一起总共50M：http://pan.baidu.com/s/1mgoIPxY
-里面还有莫言的文集当做输入语料，方法大家测试代码。这里是我运行的[表现结果](https://github.com/jannson/wordmaker/tree/master/tests)
+里面还有莫言的文集当做输入语料，方法大家测试代码。
+
+这里是我运行的[表现结果](https://github.com/jannson/wordmaker/tree/master/tests)
