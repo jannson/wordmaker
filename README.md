@@ -6,7 +6,7 @@ wordmaker 词语生成工具
 
 代码实现
 ========
-最初尝试实现了一个[简单版本](https://github.com/jannson/yaha/blob/master/extra/segword.cpp)，但基于单线程，运行速度慢，并且还消耗巨大的内存。最近尝试接触c++ 11，并吸收了hadoop的map/reduce，所以决定拿这个项目练练手。思想如下：
+最初尝试实现了一个[简单版本](https://github.com/jannson/yaha/blob/master/extra/segword.cpp)，但基于单线程，运行速度慢，并且还消耗巨大的内存。最近尝试接触c++ 11，并吸收了hadoop的map/reduce思想，所以决定拿这个项目练练手，也希望能有人多交流。思想如下：
 
 * 基于节约内存的 Trie树结构
 * 用多个线程独立计算各个文本块的词的信息，再循序合并，再用多线程单独计算各个段的词的概率，左右熵，得到词语输出。 
