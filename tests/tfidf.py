@@ -4,9 +4,9 @@ import sys, re, codecs
 from yaha import DICTS, get_dict
 from yaha.analyse import idf_freq
 
-median_idf = sorted(idf_freq.values())[len(idf_freq)/4]
+median_idf = sorted(idf_freq.values(), reverse=True)[len(idf_freq)/16]
 
-def sort_with_tfidf(freq_file_name):
+def sort_with_tfidf(freq_file_name, ofile):
     stopwords = get_dict(DICTS.STOPWORD)
 
     old_freqs = {}
@@ -27,8 +27,8 @@ def sort_with_tfidf(freq_file_name):
         tf_idf_list = [(v * idf_freq.get(k,median_idf),k) for k,v in freqs]
         st_list = sorted(tf_idf_list, reverse=True)
     
-    with codecs.open(freq_file_name+".o", "w", "utf-8") as file:
+    with codecs.open(ofile, "w", "utf-8") as file:
         for v, w in st_list:
             file.write("%s %d\n" % (w, old_freqs[w]))
 
-sort_with_tfidf("sogo_utf.txt")
+sort_with_tfidf("sogo_utf.txt", "sogo_output.txt")
