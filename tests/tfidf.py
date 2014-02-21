@@ -31,4 +31,4 @@ def sort_with_tfidf(freq_file_name, ofile):
         for v, w in st_list:
             file.write("%s %d\n" % (w, old_freqs[w]))
 
-sort_with_tfidf("sogo_utf.txt", "sogo_output.txt")
+sort_with_tfidf("o_hong_utf.txt", "hong_output.txt")
