@@ -16,4 +16,5 @@ build/
 *.txt
 !CMakeLists.txt
 !src/CMakeLists.txt
+!tests/*_output.txt
 
