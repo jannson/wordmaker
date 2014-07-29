@@ -322,7 +322,7 @@ class WordMaker
 			fprintf(pmaker->out_file, "%s\t%d\n", word.c_str(), res.value);
 		}
 		WordMaker* pmaker;
-		static const float W = 4;
+		const float W = 4;
 	};
 
 public:
