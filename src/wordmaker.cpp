@@ -3,7 +3,7 @@
  *
  *       Filename:  wordmaker.cpp
  *
- *    Description:  
+ *    Description:
  *
  *        Version:  1.0
  *        Created:  2014年02月17日 11时27分08秒
@@ -12,7 +12,7 @@
  *
  *         Author:  Jannson, gandancing@gmail.com
  *
- *   Organization:  
+ *   Organization:
  *
  * =====================================================================================
  */
@@ -183,7 +183,7 @@ class WordMaker
 			ptrie->suffix(suffix, res.length, res.id);
 
 			pmaker->trie.update(suffix, res.length, res.value);
-			
+
 			string s(suffix);
 			strrev_unicode(s);
 			pmaker->trie_r.update(s.c_str(), res.length, res.value);
@@ -203,7 +203,7 @@ class WordMaker
 		float calc_entropy(const string& word
 				, const trie_result_t& res
 				, trie_t& entro_trie
-				, const uint32_t total_freq) 
+				, const uint32_t total_freq)
 		{
 			char suffix[256];
 			hash_t		rlt_hash;
@@ -264,7 +264,8 @@ class WordMaker
 			if (freq < LEAST_FREQ) {
 				return;
 			}
-			
+
+		    const float W = 4;
 			uint32_t total_freq = pmaker->total_word/W;
 			if(gtest == 1000){
 				fprintf(stderr, "total_word:%d\n", pmaker->total_word);
@@ -322,7 +323,6 @@ class WordMaker
 			fprintf(pmaker->out_file, "%s\t%d\n", word.c_str(), res.value);
 		}
 		WordMaker* pmaker;
-		const float W = 4;
 	};
 
 public:
@@ -379,7 +379,7 @@ public:
 		bucket.hz_str = first;
 		bucket.trie = make_shared<trie_t>();
 		bucket.id = total_bucket++;
-		
+
 		return true;
 	}
 
@@ -541,7 +541,7 @@ private:
 	trie_t			trie;
 	trie_t			trie_r;
 	uint32_t		total_word;
-	
+
 	int				thread_n;
 	unique_ptr<thread[]> threads;
 	volatile int	step1_done;
@@ -565,7 +565,7 @@ void bucket_run(WordMaker& maker)
 			break;
 		}
 	}
-	
+
 	maker.notify_step1();
 }
 
